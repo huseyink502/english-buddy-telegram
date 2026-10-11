@@ -24,7 +24,11 @@ MENU = ReplyKeyboardMarkup([
     ["❓ AI Soru Sor", "📊 İlerleme"], ["🔊 Telaffuz", "➡️ Sonraki gün"],
 ], resize_keyboard=True)
 
-DB = ProgressDB(os.getenv("DB_PATH", "english_buddy.sqlite3"))
+if os.getenv("DATABASE_URL"):
+    from postgres_db import PostgresProgressDB
+    DB = PostgresProgressDB(os.environ["DATABASE_URL"])
+else:
+    DB = ProgressDB(os.getenv("DB_PATH", "english_buddy.sqlite3"))
 TEACHER = None
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0") or 0)
 
@@ -317,7 +321,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await ask_ai(update, context, text)
 
 
-def main() -> None:
+def build_application():
+    """Configure Telegram handlers without starting polling or a server."""
     global TEACHER
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -335,7 +340,13 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    LOG.info("English Buddy starts (Gemini model: %s)", os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"))
+    LOG.info("English Buddy initialized (Gemini model: %s)", os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"))
+    return app
+
+
+def main() -> None:
+    """Local development: long polling. Production: webapp.py webhook."""
+    app = build_application()
     app.run_polling(drop_pending_updates=True)
 
 
