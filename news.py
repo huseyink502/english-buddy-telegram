@@ -19,7 +19,7 @@ import httpx
 FEEDS = {
     # Multiple Turkish publishers via Google News RSS aggregation. The Google
     # search feed is unofficial and can change; always show the item publisher.
-    "turkiye": ("Türkiye Gündemi", "Google Haberler", "https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr"),
+    "turkiye": ("Türkiye Gündemi", "Google Haberler", "https://news.google.com/rss/search?q=T%C3%BCrkiye+g%C3%BCndem+when%3A2d&hl=tr&gl=TR&ceid=TR:tr"),
     "trson": ("Türkiye Son Dakika", "Google Haberler", "https://news.google.com/rss/search?q=T%C3%BCrkiye+son+dakika+when%3A1d&hl=tr&gl=TR&ceid=TR:tr"),
     "siyaset": ("Türkiye Siyaseti", "Google Haberler", "https://news.google.com/rss/search?q=T%C3%BCrkiye+siyaset+when%3A2d&hl=tr&gl=TR&ceid=TR:tr"),
     "tbmm": ("TBMM ve Meclis", "Google Haberler", "https://news.google.com/rss/search?q=TBMM+Meclis+when%3A7d&hl=tr&gl=TR&ceid=TR:tr"),
