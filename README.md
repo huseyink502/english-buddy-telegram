@@ -158,3 +158,58 @@ canlı Render ortamında yapılabilir. Bu repo API anahtarları içermez.
 - `render.yaml`: **Ücretsiz** Render web servisi ve güvenli anahtar girişleri
 - `news.py`: RSS haberleri, kategoriler, yayın tarihi ve linkler
 - `curriculum.py`, `quiz.py`, `tests/`: Dersler, testler ve kontroller
+
+
+## 🗞️ Ortak haber hafızası ve günlük özet (yeni)
+
+Bu özellikler Neon `DATABASE_URL` tanımlandıktan ve GitHub Actions sırları
+ayarlandıktan sonra etkinleşir. Render Free uykuda olsa da GitHub Actions
+RSS akışlarını saatte bir kontrol eder; çalıştırmalar birkaç dakika gecikebilir.
+
+- `/ozet_ac`: Kullanıcı adına **günlük bildirim izni** verir; ilk bildirim,
+  Türkiye saatiyle 09.00'dan sonraki uygun taramada gönderilir.
+- `/ozet_kapat`: Günlük bildirimi durdurur.
+- `/takip`: GTA 6, Brawl Stars, Türkiye siyaseti, Teknoloji ve Dünya
+  kategorilerini açıp kapatır (en az bir kategori açık kalmalı).
+- `/ozet`: Son hazırlanmış günlük özeti gösterir.
+- `/gelismeler gta6`: Veritabanında kayıtlı son haberleri seçilebilir gösterir.
+  Diğer kodlar: `brawlstars`, `siyaset`, `teknoloji`, `dunya`.
+- `GROQ_API_KEY` Render üzerinde ayarlanırsa **seçilen haberle serbest Türkçe
+  sohbetlerde** Groq GPT-OSS 120B denenir; hata olursa Gemini'ye dönülür.
+  Haber arşivi üzerinden aynı kategorideki yakın tarihli başlıklar da bağlama
+  eklenir. Haber metninin tamamı değil RSS başlık/özetleri bilinir.
+- Özet oluşturulurken Groq erişilemezse kaynak bağlantılı başlıklar kullanılır.
+
+### Kurulum
+
+1. Neon üzerinde PostgreSQL oluştur ve pooled `postgresql://...` bağlantısını al.
+2. Render `english-buddy-telegram` → Environment bölümüne:
+   - `DATABASE_URL` = Neon pooled bağlantısı
+   - `GROQ_API_KEY` = Groq API anahtarı (isteğe bağlı, ancak önerilir)
+3. GitHub deposu → Settings → Secrets and variables → Actions altında
+   **Repository secrets** olarak ekle:
+   - `DATABASE_URL` = Aynı Neon bağlantısı
+   - `TELEGRAM_BOT_TOKEN` = Var olan BotFather token'ı
+   - `GROQ_API_KEY` = Groq anahtarı (isteğe bağlı)
+4. GitHub Actions → **Hourly news archive and daily digest** → Run workflow
+   komutuyla ilk taramayı manuel çalıştırıp kayıtların oluştuğunu kontrol et.
+5. Telegram'da `/ozet_ac`, `/takip` ve `/ozet` komutlarını dene.
+
+`GROQ_API_KEY` ve diğer anahtarları **asla GitHub kaynak dosyalarına,
+commit mesajlarına veya ekran görüntülerine yazma**.
+
+### Sınırlar ve güvenlik
+
+- Botun tüm haberleri toplaması kullanıcıların kişisel sohbetlerini saklamaz.
+  Yalnızca açıkça /ozet_ac yapan kullanıcıların Telegram kullanıcı ID'si
+  ve kategori tercihleri kalıcı saklanır.
+- İlk sürüm aynılaştırılmış haber başlıklarını tekrar olarak değerlendirir;
+  farklı başlıklarla anlatılan aynı olayı kusursuz birleştirdiğini iddia etmez.
+- Haberleri Google Haberler RSS üzerinden toplamak resmi bir API garantisi
+  değildir. Resmî oyun duyurularını ve politik haberleri kaynağından doğrula.
+- Planlanan saatler kesin değildir. GitHub Actions zamanlanmış görevleri
+  gecikebilir; 60 gün aktif olmayan açık depolarda schedule devre dışı kalabilir.
+- Bildirim teslimatında PostgreSQL kayıtları tekrarları azaltır; Telegram'ın
+  gönderip kayıt öncesinde hata vermesi gibi istisnalarda tekrar teslim mümkündür.
+- Ücretsiz Groq, GitHub Actions, Render ve Neon planlarının her birinde
+  kota/limit vardır.
