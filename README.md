@@ -69,14 +69,19 @@ Telegram sohbetinde `/` tuşuna bastığında komut listesi görünür. Menü bo
 - `/siyaset`: Türkiye siyaseti, siyasi partiler, hükümet ve muhalefet haberleri.
 - `/tbmm`: TBMM ve Meclis gündemi.
 - `/sondakika`: Türkiye son dakika gelişmeleri.
+- `/oyun`: Oyun dünyasından genel haberler.
+- `/brawlstars`: Brawl Stars güncellemeleri ve etkinlik haberleri.
+- `/gta6`: GTA 6 ve Grand Theft Auto VI ile ilgili güncel haberler.
 - Her kategoride son 8 haber başlığını, haberin yayıncısını ve tarihini gösterir.
-- Butonlarla **Türkiye, Siyaset, Türkiye Son Dakika, TBMM, TRT Son Dakika, Gündem, Dünya, Ekonomi, Teknoloji ve BBC Türkçe** arasında geçiş yapılabilir.
+- Butonlarla **Türkiye, Siyaset, Türkiye Son Dakika, TBMM, TRT Son Dakika, Gündem, Dünya, Ekonomi, Teknoloji, BBC Türkçe, Oyun Gündemi, Brawl Stars ve GTA 6** arasında geçiş yapılabilir.
 - Haber butonuna basınca ilgili **başlık, RSS özeti, kaynak bağlantısı ve yayın tarihi** açılır.
 - Seçtikten sonra normal mesaj yazarak Gemini'ye o haber hakkında soru sorarsın;
   `/ask` komutuyla yeniden genel yapay zekâ sohbetine geçersin.
 - Türkiye ve siyaset haberlerinde farklı yayıncıların başlıkları **Google Haberler RSS** üzerinden toplanır;
   her başlığın gerçek yayıncı adı ayrıca gösterilir. Genel haberler ayrıca TRT Haber ve BBC Türkçe
   RSS kaynaklarından gelir.
+- Oyun Gündemi, Brawl Stars ve GTA 6 kategorileri de Google Haberler RSS araması kullanır.
+  Bu kategoriler haber niteliğinde içerik toplar; doğrulanmamış söylentiler de çıkabilir.
 - Google Haberler'in RSS arama akışları resmi bir API değildir; formatı değişebilir. Haberler farklı
   yayıncılardan geldiği için iddiaları karşılaştır, gerekirse kaynak bağlantısını aç.
   Kaynaklar zaman zaman erişilemeyebilir veya haber özetleri yetersiz olabilir.
@@ -98,6 +103,9 @@ paylaşırsın. Sınırsız kullanım hedeflenmemelidir; API kota/harcamaların�
 | `/siyaset` | Türkiye siyaseti haberlerini gör |
 | `/tbmm` | TBMM ve Meclis haberlerini gör |
 | `/sondakika` | Türkiye son dakika haberlerini gör |
+| `/oyun` | Genel oyun gündemini gör |
+| `/brawlstars` | Brawl Stars haberlerini gör |
+| `/gta6` | GTA 6 haberlerini gör |
 | `/lesson` | Günün 5 kelimesi, 3 cümlesi ve diyalog |
 | `/quiz` | Çoktan seçmeli test |
 | `/review` | Aralıklı kelime tekrarı |
