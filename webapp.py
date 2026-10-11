@@ -40,6 +40,9 @@ async def lifespan(server: FastAPI):
     application = english_bot.build_application()
     await application.initialize()
     await application.start()
+    # Webhook mode does not execute the polling post_init hook; register
+    # Telegram's "/" menu explicitly on every Render startup.
+    await english_bot.register_commands(application)
     try:
         url = external_url() + "/telegram/webhook"
         await application.bot.set_webhook(
