@@ -16,14 +16,10 @@ from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandle
 
 from ai import GeminiTeacher
 from groq_ai import GroqNewsAssistant
-from news_memory import NewsMemory, TOPICS
 from curriculum import LESSONS, lesson_for, render_lesson
 from db import ProgressDB
 from news import CATEGORIES, FEEDS, find_article, load_category
 from news_memory import NewsMemory, TOPICS, TOPIC_IDS, unique_stories
-from groq_ai import GroqNewsAssistant
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 from quiz import questions_for
 
 load_dotenv()
@@ -48,7 +44,6 @@ else:
     DB = ProgressDB(os.getenv("DB_PATH", "english_buddy.sqlite3"))
 TEACHER = None
 NEWS_MEMORY = NewsMemory(os.environ["DATABASE_URL"]) if os.getenv("DATABASE_URL") else None
-GROQ = GroqNewsAssistant(os.environ["GROQ_API_KEY"]) if os.getenv("GROQ_API_KEY") else None
 GROQ_NEWS_AI = None
 
 
@@ -484,8 +479,6 @@ async def article_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             article = await asyncio.to_thread(memory.get_article, article_key) if memory else None
         except Exception:
             LOG.exception("Failed to load archived news article")
-    if article is None and NEWS_MEMORY is not None:
-        article = await asyncio.to_thread(NEWS_MEMORY.get_article, query.data.split(":", 1)[1])
     if article is None:
         await query.message.reply_text(
             "⚠️ Bu haber artık güncel listede bulunamadı. /haberler ile yeniden seç."
@@ -523,23 +516,21 @@ async def ask_news_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, questi
         if GROQ_NEWS_AI is not None:
             related = []
             category = context.user_data.get("selected_news_category")
-            if category in TOPICS and os.getenv("DATABASE_URL"):
+            if category in TOPICS and NEWS_MEMORY is not None:
                 try:
-                    memory = await asyncio.to_thread(get_news_memory)
                     related = await asyncio.to_thread(
-                        memory.recent, category,
+                        NEWS_MEMORY.recent, category,
                         datetime.now(ZoneInfo("Europe/Istanbul")) - timedelta(days=14), 6
-                    ) if memory else []
+                    )
                 except Exception:
-                    LOG.warning("Archived context unavailable; selected article still available")
+                    LOG.warning("Archived context unavailable; using selected article")
             try:
-                answer = await GROQ_NEWS_AI.answer_news_question(article, question, history, related)
+                answer = await GROQ_NEWS_AI.answer_news_question(
+                    article, question, history, related
+                )
             except Exception:
-                LOG.exception("Groq unavailable, falling back to Gemini for this news")
-                if GROQ is not None:
-            answer = await GROQ.answer_news_question(article, question, history)
-        else:
-            answer = await TEACHER.answer_news_question(article, question, history)
+                LOG.exception("Groq unavailable, falling back to Gemini")
+                answer = await TEACHER.answer_news_question(article, question, history)
         else:
             answer = await TEACHER.answer_news_question(article, question, history)
     except Exception:
@@ -831,16 +822,12 @@ def build_application():
         ("gelismeler", developments_command),
         ("news", news_command), ("oyun", news_command),
         ("brawlstars", news_command), ("gta6", news_command),
-        ("ozet", news_settings), ("ozet_ac", news_settings),
-        ("ozet_kapat", news_settings), ("takip", news_settings),
-        ("gelismeler", news_settings),
     ]:
         app.add_handler(CommandHandler(command, handler))
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
     app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(turkiye|trson|siyaset|tbmm|son|gundem|dunya|ekonomi|teknoloji|bbc|oyun|brawlstars|gta6)$"))
     app.add_handler(CallbackQueryHandler(article_callback, pattern=r"^article:[a-f0-9]{16}$"))
     app.add_handler(CallbackQueryHandler(topics_callback, pattern=r"^topic:(gta6|brawlstars|siyaset|teknoloji|dunya)$"))
-    app.add_handler(CallbackQueryHandler(topic_callback, pattern=r"^topic:(gta6|brawlstars|siyaset|teknoloji|dunya)$"))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     LOG.info("English Buddy initialized (Gemini model: %s)", os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"))
