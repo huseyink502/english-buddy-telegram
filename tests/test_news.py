@@ -43,7 +43,7 @@ class NewsParserTests(unittest.TestCase):
         asyncio.run(runner())
 
     def test_supported_categories(self):
-        for category in ("turkiye", "trson", "siyaset", "tbmm", "son", "bbc"):
+        for category in ("turkiye", "trson", "siyaset", "tbmm", "son", "bbc", "oyun", "brawlstars", "gta6"):
             self.assertIn(category, CATEGORIES)
 
     def test_aggregated_news_preserves_individual_publishers(self):
@@ -73,6 +73,9 @@ class NewsParserTests(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         self.assertIn("haberler", names)
         self.assertIn("sondakika", names)
+        self.assertIn("oyun", names)
+        self.assertIn("brawlstars", names)
+        self.assertIn("gta6", names)
         self.assertTrue(all(name.isascii() and name.islower() for name in names))
 
 
