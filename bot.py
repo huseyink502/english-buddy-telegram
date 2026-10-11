@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction
+from telegram.error import BadRequest
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from ai import GeminiTeacher
@@ -264,7 +265,12 @@ async def show_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
     buttons.extend(NEWS_CATEGORY_KEYBOARD)
     markup = InlineKeyboardMarkup(buttons)
     if query:
-        await query.edit_message_text(text, reply_markup=markup)
+        try:
+            await query.edit_message_text(text, reply_markup=markup)
+        except BadRequest as exc:
+            # Tapping the currently selected category is a harmless no-op.
+            if "Message is not modified" not in str(exc):
+                raise
     else:
         await update.message.reply_text(text, reply_markup=markup)
 
