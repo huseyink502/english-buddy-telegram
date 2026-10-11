@@ -6,13 +6,14 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from ai import GeminiTeacher
 from curriculum import LESSONS, lesson_for, render_lesson
 from db import ProgressDB
+from news import CATEGORIES, FEEDS, find_article, load_category
 from quiz import questions_for
 
 load_dotenv()
@@ -24,7 +25,8 @@ LOG = logging.getLogger("english-buddy")
 
 MENU = ReplyKeyboardMarkup([
     ["📚 Ders", "🧠 Test"], ["🔁 Tekrar", "💬 Konuşma"],
-    ["❓ AI Soru Sor", "📊 İlerleme"], ["🔊 Telaffuz", "➡️ Sonraki gün"],
+    ["❓ AI Soru Sor", "📰 Haberler"], ["📊 İlerleme", "🔊 Telaffuz"],
+    ["➡️ Sonraki gün"],
 ], resize_keyboard=True)
 
 if os.getenv("DATABASE_URL"):
@@ -34,6 +36,28 @@ else:
     DB = ProgressDB(os.getenv("DB_PATH", "english_buddy.sqlite3"))
 TEACHER = None
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0") or 0)
+
+BOT_COMMANDS = [
+    BotCommand("start", "Ana menüyü aç"),
+    BotCommand("haberler", "Güncel ve son dakika haberleri"),
+    BotCommand("sondakika", "En son haberleri göster"),
+    BotCommand("lesson", "Günlük İngilizce dersi"),
+    BotCommand("quiz", "Kelime testi"),
+    BotCommand("review", "Kelime tekrarları"),
+    BotCommand("chat", "İngilizce konuşma pratiği"),
+    BotCommand("ask", "Gemini'ye serbest soru sor"),
+    BotCommand("progress", "Öğrenme ilerlemesi"),
+    BotCommand("speak", "İngilizce telaffuz dinle"),
+    BotCommand("next", "Bir sonraki ders günü"),
+    BotCommand("help", "Yardım ve komutlar"),
+]
+
+
+async def register_commands(application) -> None:
+    """Register slash commands for Telegram's native '/' autocomplete menu."""
+    await application.bot.set_my_commands(BOT_COMMANDS)
+    LOG.info("Telegram slash command menu updated")
+
 
 
 def authorized(update: Update) -> bool:
@@ -65,7 +89,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🔁 Tekrar: Zamanı gelen kelimeler\n"
         "💬 Konuşma: Gemini ile İngilizce pratik\n"
         "❓ AI Soru Sor: Aklına geleni sor\n"
-        "🔊 Telaffuz: Bir kelimenin sesini dinle\n\n"
+        "🔊 Telaffuz: Bir kelimenin sesini dinle\n"
+        "📰 Haberler: Son dakika haberleri ve habere soru sor\n\n"
         "İlk ders için 📚 Ders'e dokun. Bana doğrudan mesaj da yazabilirsin.",
         reply_markup=MENU,
     )
@@ -86,7 +111,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         "/start başlangıç menüsü\n/lesson ders\n/quiz mini test\n/review tekrar\n"
         "/chat İngilizce konuşma\n/ask serbest soru\n/speak hello telaffuz\n"
-        "/progress ilerleme\n/next sıradaki gün\n/whoami ID öğren\n/help yardım\n\n"
+        "/progress ilerleme\n/next sıradaki gün\n/haberler son haberler\n"
+        "/sondakika son dakika haberleri\n/whoami ID öğren\n/help yardım\n\n"
         "Sesli mesaj gönderirsen Gemini konuşmanı çözümleyip geri bildirim verir.",
         reply_markup=MENU,
     )
@@ -192,6 +218,127 @@ async def quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await query.edit_message_text(
             f"{feedback}\n\n{quiz_text(state)}", reply_markup=quiz_keyboard(new_question)
         )
+
+
+
+NEWS_CATEGORY_KEYBOARD = [
+    [InlineKeyboardButton("🚨 Son dakika", callback_data="news:son"),
+     InlineKeyboardButton("🗞️ Gündem", callback_data="news:gundem")],
+    [InlineKeyboardButton("🌍 Dünya", callback_data="news:dunya"),
+     InlineKeyboardButton("💰 Ekonomi", callback_data="news:ekonomi")],
+    [InlineKeyboardButton("💻 Teknoloji", callback_data="news:teknoloji"),
+     InlineKeyboardButton("🌐 BBC Türkçe", callback_data="news:bbc")],
+]
+
+
+async def show_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                    category: str = "son", query=None) -> None:
+    """List source headlines, publish dates and selectable article buttons."""
+    try:
+        articles = await load_category(category)
+    except Exception:
+        LOG.exception("RSS feed fetch or parsing failed for %s", category)
+        msg = "⚠️ Haber kaynağına şu an erişilemiyor. Biraz sonra /haberler ile tekrar dene."
+        if query:
+            await query.message.reply_text(msg)
+        else:
+            await update.message.reply_text(msg)
+        return
+    label, source, _url = FEEDS[category]
+    header = f"📰 {label} — {source}\n\n"
+    lines = [
+        f"{n}. {article.title}\n   🕒 {article.published_label}"
+        for n, article in enumerate(articles[:8], 1)
+    ]
+    text = header + "\n\n".join(lines) + (
+        "\n\nBir haberi seç; Gemini'ye o haber hakkında soru sorabilirsin. "
+        "Başlık ve özet haber kaynağından gelir."
+    )
+    buttons = [
+        [InlineKeyboardButton(
+            f"{number}. {article.title[:45]}" + ("…" if len(article.title) > 45 else ""),
+            callback_data=f"article:{article.key}",
+        )]
+        for number, article in enumerate(articles[:8], 1)
+    ]
+    buttons.extend(NEWS_CATEGORY_KEYBOARD)
+    markup = InlineKeyboardMarkup(buttons)
+    if query:
+        await query.edit_message_text(text, reply_markup=markup)
+    else:
+        await update.message.reply_text(text, reply_markup=markup)
+
+
+async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_access(update):
+        return
+    await show_news(update, context)
+
+
+async def news_category_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not authorized(update):
+        await query.answer("Erişim yok.", show_alert=True)
+        return
+    category = query.data.split(":", 1)[1]
+    if category not in CATEGORIES:
+        await query.answer("Geçersiz haber kategorisi.", show_alert=True)
+        return
+    await query.answer()
+    await show_news(update, context, category=category, query=query)
+
+
+async def article_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not authorized(update):
+        await query.answer("Erişim yok.", show_alert=True)
+        return
+    await query.answer()
+    article = await find_article(query.data.split(":", 1)[1])
+    if article is None:
+        await query.message.reply_text(
+            "⚠️ Bu haber artık güncel listede bulunamadı. /haberler ile yeniden seç."
+        )
+        return
+    # Per-user, in-memory selection: prevents another user's questions mixing in.
+    context.user_data["selected_news"] = article
+    context.user_data["mode"] = "news"
+    context.user_data["news_history"] = []
+    await query.message.reply_text(
+        f"📰 {article.title}\n\n"
+        f"🗞️ Kaynak: {article.source}\n"
+        f"🕒 Yayın: {article.published_label} (Türkiye saati)\n\n"
+        f"{article.summary or 'Bu kaynak haber özeti paylaşmamış.'}\n\n"
+        f"🔗 Haberin tamamı: {article.url}\n\n"
+        "💬 Bu haber hakkında sorun varsa doğrudan yazabilirsin. "
+        "Gemini yalnızca yukarıdaki RSS bilgilerini gördüğü için "
+        "haberin tam metnini okumuş gibi yanıt vermez.\n"
+        "Genel yapay zekâ sohbetine dönmek için /ask yaz."
+    )
+
+
+async def ask_news_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, question: str) -> None:
+    if len(question) > 1500:
+        await update.message.reply_text("Lütfen haber sorun 1500 karakterden kısa olsun.")
+        return
+    article = context.user_data.get("selected_news")
+    if article is None:
+        await update.message.reply_text("Önce /haberler ile bir haber seçmelisin.")
+        return
+    await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+    history = context.user_data.setdefault("news_history", [])
+    try:
+        answer = await TEACHER.answer_news_question(article, question, history)
+    except Exception:
+        LOG.exception("News Gemini request failed")
+        await update.message.reply_text(
+            "⚠️ Gemini habere yanıt veremedi. API kotasını ve bağlantıyı kontrol et."
+        )
+        return
+    history.extend([("user", question), ("model", answer)])
+    context.user_data["news_history"] = history[-6:]
+    for offset in range(0, len(answer), 3900):
+        await update.message.reply_text(answer[offset:offset + 3900])
 
 
 async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -313,6 +460,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🔁 Tekrar": review_command,
         "💬 Konuşma": chat_mode,
         "❓ AI Soru Sor": ask_mode,
+        "📰 Haberler": news_command,
         "📊 İlerleme": progress,
         "➡️ Sonraki gün": next_day,
     }
@@ -320,6 +468,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await button_map[text](update, context)
     elif text == "🔊 Telaffuz":
         await update.message.reply_text("🔊 Dinlemek için /speak Hello yaz.")
+    elif context.user_data.get("mode") == "news":
+        await ask_news_ai(update, context, text)
     else:
         await ask_ai(update, context, text)
 
@@ -332,15 +482,18 @@ def build_application():
     if not token or not api_key:
         raise SystemExit(".env dosyasında TELEGRAM_BOT_TOKEN ve GEMINI_API_KEY ayarlanmalı.")
     TEACHER = GeminiTeacher(api_key)
-    app = ApplicationBuilder().token(token).build()
+    app = ApplicationBuilder().token(token).post_init(register_commands).build()
     for command, handler in [
         ("start", start), ("whoami", whoami), ("help", help_command), ("lesson", lesson),
         ("next", next_day), ("quiz", quiz_command), ("review", review_command),
         ("progress", progress), ("chat", chat_mode), ("ask", ask_mode),
-        ("speak", speak),
+        ("speak", speak), ("haberler", news_command), ("sondakika", news_command),
+        ("news", news_command),
     ]:
         app.add_handler(CommandHandler(command, handler))
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
+    app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(son|gundem|dunya|ekonomi|teknoloji|bbc)$"))
+    app.add_handler(CallbackQueryHandler(article_callback, pattern=r"^article:[a-f0-9]{16}$"))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     LOG.info("English Buddy initialized (Gemini model: %s)", os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"))
