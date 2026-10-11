@@ -26,7 +26,8 @@ LOG = logging.getLogger("english-buddy")
 
 MENU = ReplyKeyboardMarkup([
     ["📚 Ders", "🧠 Test"], ["🔁 Tekrar", "💬 Konuşma"],
-    ["❓ AI Soru Sor", "📰 Haberler"], ["📊 İlerleme", "🔊 Telaffuz"],
+    ["❓ AI Soru Sor", "📰 Haberler"], ["🇹🇷 Türkiye", "🏛️ Siyaset"],
+    ["📊 İlerleme", "🔊 Telaffuz"],
     ["➡️ Sonraki gün"],
 ], resize_keyboard=True)
 
@@ -40,8 +41,11 @@ ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0") or 0)
 
 BOT_COMMANDS = [
     BotCommand("start", "Ana menüyü aç"),
-    BotCommand("haberler", "Güncel ve son dakika haberleri"),
-    BotCommand("sondakika", "En son haberleri göster"),
+    BotCommand("haberler", "Türkiye ve dünya gündemi"),
+    BotCommand("turkiye", "Türkiye'den güncel haberler"),
+    BotCommand("siyaset", "Türkiye siyaseti ve partiler"),
+    BotCommand("tbmm", "TBMM ve Meclis haberleri"),
+    BotCommand("sondakika", "Türkiye son dakika haberleri"),
     BotCommand("lesson", "Günlük İngilizce dersi"),
     BotCommand("quiz", "Kelime testi"),
     BotCommand("review", "Kelime tekrarları"),
@@ -91,7 +95,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "💬 Konuşma: Gemini ile İngilizce pratik\n"
         "❓ AI Soru Sor: Aklına geleni sor\n"
         "🔊 Telaffuz: Bir kelimenin sesini dinle\n"
-        "📰 Haberler: Son dakika haberleri ve habere soru sor\n\n"
+        "📰 Haberler: Türkiye, siyaset ve son dakika haberleri; Gemini'ye sor\n\n"
         "İlk ders için 📚 Ders'e dokun. Bana doğrudan mesaj da yazabilirsin.",
         reply_markup=MENU,
     )
@@ -113,7 +117,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/start başlangıç menüsü\n/lesson ders\n/quiz mini test\n/review tekrar\n"
         "/chat İngilizce konuşma\n/ask serbest soru\n/speak hello telaffuz\n"
         "/progress ilerleme\n/next sıradaki gün\n/haberler son haberler\n"
-        "/sondakika son dakika haberleri\n/whoami ID öğren\n/help yardım\n\n"
+        "/sondakika Türkiye son dakika\n/siyaset siyasi haberler\n"
+        "/turkiye Türkiye gündemi\n/tbmm Meclis haberleri\n"
+        "/whoami ID öğren\n/help yardım\n\n"
         "Sesli mesaj gönderirsen Gemini konuşmanı çözümleyip geri bildirim verir.",
         reply_markup=MENU,
     )
@@ -223,7 +229,11 @@ async def quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 NEWS_CATEGORY_KEYBOARD = [
-    [InlineKeyboardButton("🚨 Son dakika", callback_data="news:son"),
+    [InlineKeyboardButton("🇹🇷 Türkiye", callback_data="news:turkiye"),
+     InlineKeyboardButton("🏛️ Siyaset", callback_data="news:siyaset")],
+    [InlineKeyboardButton("🚨 TR Son Dakika", callback_data="news:trson"),
+     InlineKeyboardButton("🏢 TBMM", callback_data="news:tbmm")],
+    [InlineKeyboardButton("📰 TRT Son Dakika", callback_data="news:son"),
      InlineKeyboardButton("🗞️ Gündem", callback_data="news:gundem")],
     [InlineKeyboardButton("🌍 Dünya", callback_data="news:dunya"),
      InlineKeyboardButton("💰 Ekonomi", callback_data="news:ekonomi")],
@@ -233,7 +243,7 @@ NEWS_CATEGORY_KEYBOARD = [
 
 
 async def show_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                    category: str = "son", query=None) -> None:
+                    category: str = "turkiye", query=None) -> None:
     """List source headlines, publish dates and selectable article buttons."""
     try:
         articles = await load_category(category)
@@ -248,7 +258,7 @@ async def show_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
     label, source, _url = FEEDS[category]
     header = f"📰 {label} — {source}\n\n"
     lines = [
-        f"{n}. {article.title}\n   🕒 {article.published_label}"
+        f"{n}. {article.title}\n   🗞️ {article.source} · 🕒 {article.published_label}"
         for n, article in enumerate(articles[:8], 1)
     ]
     text = header + "\n\n".join(lines) + (
@@ -278,7 +288,12 @@ async def show_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_access(update):
         return
-    await show_news(update, context)
+    command = ((update.message.text or "").split()[0].split("@")[0]).lower()
+    category_by_command = {
+        "/haberler": "turkiye", "/news": "turkiye", "/turkiye": "turkiye",
+        "/sondakika": "trson", "/siyaset": "siyaset", "/tbmm": "tbmm",
+    }
+    await show_news(update, context, category=category_by_command.get(command, "turkiye"))
 
 
 async def news_category_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -467,10 +482,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "💬 Konuşma": chat_mode,
         "❓ AI Soru Sor": ask_mode,
         "📰 Haberler": news_command,
+        "🇹🇷 Türkiye": news_command,
+        "🏛️ Siyaset": news_command,
         "📊 İlerleme": progress,
         "➡️ Sonraki gün": next_day,
     }
-    if text in button_map:
+    if text == "🏛️ Siyaset":
+        await show_news(update, context, category="siyaset")
+    elif text in button_map:
         await button_map[text](update, context)
     elif text == "🔊 Telaffuz":
         await update.message.reply_text("🔊 Dinlemek için /speak Hello yaz.")
@@ -494,11 +513,12 @@ def build_application():
         ("next", next_day), ("quiz", quiz_command), ("review", review_command),
         ("progress", progress), ("chat", chat_mode), ("ask", ask_mode),
         ("speak", speak), ("haberler", news_command), ("sondakika", news_command),
+        ("turkiye", news_command), ("siyaset", news_command), ("tbmm", news_command),
         ("news", news_command),
     ]:
         app.add_handler(CommandHandler(command, handler))
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
-    app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(son|gundem|dunya|ekonomi|teknoloji|bbc)$"))
+    app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(turkiye|trson|siyaset|tbmm|son|gundem|dunya|ekonomi|teknoloji|bbc)$"))
     app.add_handler(CallbackQueryHandler(article_callback, pattern=r"^article:[a-f0-9]{16}$"))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
