@@ -17,6 +17,12 @@ from zoneinfo import ZoneInfo
 import httpx
 
 FEEDS = {
+    # Multiple Turkish publishers via Google News RSS aggregation. The Google
+    # search feed is unofficial and can change; always show the item publisher.
+    "turkiye": ("Türkiye Gündemi", "Google Haberler", "https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr"),
+    "trson": ("Türkiye Son Dakika", "Google Haberler", "https://news.google.com/rss/search?q=T%C3%BCrkiye+son+dakika+when%3A1d&hl=tr&gl=TR&ceid=TR:tr"),
+    "siyaset": ("Türkiye Siyaseti", "Google Haberler", "https://news.google.com/rss/search?q=T%C3%BCrkiye+siyaset+when%3A2d&hl=tr&gl=TR&ceid=TR:tr"),
+    "tbmm": ("TBMM ve Meclis", "Google Haberler", "https://news.google.com/rss/search?q=TBMM+Meclis+when%3A7d&hl=tr&gl=TR&ceid=TR:tr"),
     "son": ("Son Dakika", "TRT Haber", "https://www.trthaber.com/sondakika_articles.rss"),
     "gundem": ("Gündem", "TRT Haber", "https://www.trthaber.com/gundem_articles.rss"),
     "dunya": ("Dünya", "TRT Haber", "https://www.trthaber.com/dunya_articles.rss"),
@@ -83,9 +89,14 @@ def parse_rss(xml_bytes: bytes, source: str) -> list[Article]:
             continue
         summary = clean_text(item.findtext("description"), 1100)
         published = parse_date(item.findtext("pubDate") or item.findtext("{http://purl.org/dc/elements/1.1/}date"))
+        # Google News aggregates different outlets; show each publisher, not just
+        # "Google Haberler", so political coverage remains attributable.
+        publisher = clean_text(item.findtext("source"), 100) or source
+        if publisher != source and title.endswith(" - " + publisher):
+            title = title[:-(len(publisher) + 3)].strip()
         # Stable IDs allow an already-displayed inline button to select the story later.
         key = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
-        articles.append(Article(key, title, summary, url, source, published))
+        articles.append(Article(key, title, summary, url, publisher, published))
     articles.sort(key=lambda item: item.published or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     return articles
 
