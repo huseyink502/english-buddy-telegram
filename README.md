@@ -65,12 +65,20 @@ Telegram kullanıcıları da Gemini API kotanı harcayabilir.
 Telegram sohbetinde `/` tuşuna bastığında komut listesi görünür. Menü bot her başlatıldığında
 `setMyCommands` ile otomatik kaydedilir.
 
-- `/haberler` veya `/sondakika`: Son 8 haber başlığını, kaynak ve yayın zamanı ile gösterir.
-- Butonlarla **Son Dakika, Gündem, Dünya, Ekonomi, Teknoloji ve BBC Türkçe** seçilebilir.
+- `/haberler` veya `/turkiye`: Türkiye gündeminden en yeni haber başlıklarını gösterir.
+- `/siyaset`: Türkiye siyaseti, siyasi partiler, hükümet ve muhalefet haberleri.
+- `/tbmm`: TBMM ve Meclis gündemi.
+- `/sondakika`: Türkiye son dakika gelişmeleri.
+- Her kategoride son 8 haber başlığını, haberin yayıncısını ve tarihini gösterir.
+- Butonlarla **Türkiye, Siyaset, Türkiye Son Dakika, TBMM, TRT Son Dakika, Gündem, Dünya, Ekonomi, Teknoloji ve BBC Türkçe** arasında geçiş yapılabilir.
 - Haber butonuna basınca ilgili **başlık, RSS özeti, kaynak bağlantısı ve yayın tarihi** açılır.
 - Seçtikten sonra normal mesaj yazarak Gemini'ye o haber hakkında soru sorarsın;
   `/ask` komutuyla yeniden genel yapay zekâ sohbetine geçersin.
-- Haberler TRT Haber'in resmi RSS akışlarından ve BBC Türkçe RSS akışından gelir.
+- Türkiye ve siyaset haberlerinde farklı yayıncıların başlıkları **Google Haberler RSS** üzerinden toplanır;
+  her başlığın gerçek yayıncı adı ayrıca gösterilir. Genel haberler ayrıca TRT Haber ve BBC Türkçe
+  RSS kaynaklarından gelir.
+- Google Haberler'in RSS arama akışları resmi bir API değildir; formatı değişebilir. Haberler farklı
+  yayıncılardan geldiği için iddiaları karşılaştır, gerekirse kaynak bağlantısını aç.
   Kaynaklar zaman zaman erişilemeyebilir veya haber özetleri yetersiz olabilir.
 - **Gemini tam haber metnini otomatik olarak okumaz; sadece RSS başlık ve özetini kullanır.**
   Bilgi özette yoksa bunu söylemesi beklenir; yanlış veya eksik yanıt olasılığı vardır.
@@ -86,7 +94,10 @@ paylaşırsın. Sınırsız kullanım hedeflenmemelidir; API kota/harcamaların�
 | Komut | İşlev |
 |---|---|
 | `/start` | Menü ve kullanım açıklaması |
-| `/haberler`, `/sondakika` | Haberleri seç ve Gemini'ye haberi sor |
+| `/haberler`, `/turkiye` | Türkiye gündemini gör ve haber seç |
+| `/siyaset` | Türkiye siyaseti haberlerini gör |
+| `/tbmm` | TBMM ve Meclis haberlerini gör |
+| `/sondakika` | Türkiye son dakika haberlerini gör |
 | `/lesson` | Günün 5 kelimesi, 3 cümlesi ve diyalog |
 | `/quiz` | Çoktan seçmeli test |
 | `/review` | Aralıklı kelime tekrarı |
