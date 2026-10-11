@@ -17,6 +17,9 @@ from quiz import questions_for
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# httpx request URLs include Telegram bot tokens. Never log these requests.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 LOG = logging.getLogger("english-buddy")
 
 MENU = ReplyKeyboardMarkup([
