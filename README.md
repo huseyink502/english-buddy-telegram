@@ -1,3 +1,22 @@
+# 🚀 Botu çalıştır — Codex Cloud gerekmiyor
+
+**İngilizce botunu başlatmak için tek bağlantı:**
+
+**[Render'da English Buddy'yi kur](https://render.com/deploy?repo=https://github.com/huseyink502/english-buddy-telegram)**
+
+Bu bağlantı, depodaki `render.yaml` dosyasını okuyup Telegram botunu bir **arka plan işçisi** olarak çalıştırmaya hazırlar.
+
+1. Render hesabınla giriş yap ve önerilen servisi **onaylamadan önce ücretini kontrol et**.
+2. Açılan gizli alanlara BotFather token'ını `TELEGRAM_BOT_TOKEN`, Google AI Studio anahtarını `GEMINI_API_KEY` olarak gir. Bu kodları **GitHub'a veya Codex sohbetine yazma**.
+3. Ücretli servisi kabul ediyorsan deploy işlemini onayla. Hazır olunca Telegram botuna `/start` yaz.
+4. İlk denemeden sonra botunun özel kalması için Telegram'da `/whoami` yazıp çıkan sayısal ID'yi Render servis ayarlarında `ALLOWED_USER_ID` olarak değiştir. Başlangıçtaki `0` değeri botun başkalarına da açık olduğu anlamına gelir.
+
+**Ücret uyarısı:** Render background worker için ücretli çalışma planı gerekir (dosyada `0.5c-512mb` seçili). Kalıcı disk de ek ücretlidir. Gemini API kullanımı da kotaya ve tarifeye tabidir. Herhangi bir ödeme, kurulum linkini açmakla otomatik olarak yapılmaz; planı ve tutarı onaylamadan önce kontrol et.
+
+**Durum:** Kod ve kurulum şablonu hazır; gizli anahtarlar henüz eklenmediği ve Render'da servis oluşturulmadığı için bot şu an çevrimiçi değildir. Codex Cloud'da gördüğün `unavailable` hatasını çözmene gerek yok.
+
+---
+
 # English Buddy — Telegram + Gemini İngilizce Öğretmeni
 
 Bu proje, sıfırdan günlük İngilizce öğrenmek için **Codex Cloud ile geliştirilebilir** bir Telegram botu başlangıç sürümüdür.
