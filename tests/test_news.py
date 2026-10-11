@@ -43,8 +43,30 @@ class NewsParserTests(unittest.TestCase):
         asyncio.run(runner())
 
     def test_supported_categories(self):
-        self.assertIn("son", CATEGORIES)
-        self.assertIn("bbc", CATEGORIES)
+        for category in ("turkiye", "trson", "siyaset", "tbmm", "son", "bbc"):
+            self.assertIn(category, CATEGORIES)
+
+    def test_aggregated_news_preserves_individual_publishers(self):
+        feed = """<?xml version="1.0"?>
+          <rss><channel>
+          <item>
+            <title>Mecliste yeni görüşme - Gazete Bir</title>
+            <link>https://news.google.com/rss/articles/story1</link>
+            <source url="https://example.org">Gazete Bir</source>
+            <description>Görüşmeler devam ediyor.</description>
+            <pubDate>Sun, 11 Oct 2026 11:00:00 +0300</pubDate>
+          </item>
+          <item>
+            <title>Partilerden açıklamalar - Gazete İki</title>
+            <link>https://news.google.com/rss/articles/story2</link>
+            <source url="https://example.net">Gazete İki</source>
+            <description>İkinci haber.</description>
+          </item></channel></rss>""".encode("utf-8")
+        articles = parse_rss(feed, "Google Haberler")
+        self.assertEqual(articles[0].source, "Gazete Bir")
+        self.assertEqual(articles[0].title, "Mecliste yeni görüşme")
+        self.assertEqual(articles[1].source, "Gazete İki")
+        self.assertEqual(articles[1].title, "Partilerden açıklamalar")
 
     def test_command_names_for_slash_menu(self):
         names = [command.command for command in BOT_COMMANDS]
