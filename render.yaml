@@ -1,18 +1,15 @@
-# Render Blueprint: surekli calisan Telegram polling botu
-# Gizli API anahtarlari GitHub'a yazilmaz; Render kurulumunda sorulur.
-# UYARI: Background worker + disk ucretlidir. Onaylamadan once ucreti inceleyin.
+# Render free-web tier: Telegram HTTPS webhook, not a paid background worker.
+# Free services sleep after 15 min idle and can take ~1 minute to wake.
+# Without DATABASE_URL, local SQLite progress is EPHEMERAL on Render.
 services:
-  - type: worker
+  - type: web
     name: english-buddy-telegram
     runtime: python
-    plan: 0.5c-512mb
+    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
-    autoDeployTrigger: off
-    disk:
-      name: progress-data
-      mountPath: /var/data
-      sizeGB: 1
+    startCommand: uvicorn webapp:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
@@ -20,7 +17,8 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.1-flash-lite
+      # Change 0 to YOUR Telegram numeric ID after first /whoami.
       - key: ALLOWED_USER_ID
         value: "0"
-      - key: DB_PATH
-        value: /var/data/english_buddy.sqlite3
+      # For permanent progress, add DATABASE_URL via Render dashboard
+      # using a free Neon Postgres pooled connection string.
