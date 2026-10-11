@@ -26,7 +26,8 @@ LOG = logging.getLogger("english-buddy")
 
 MENU = ReplyKeyboardMarkup([
     ["📚 Ders", "🧠 Test"], ["🔁 Tekrar", "💬 Konuşma"],
-    ["❓ AI Soru Sor", "📰 Haberler"], ["🇹🇷 Türkiye", "🏛️ Siyaset"],
+    ["❓ AI Soru Sor", "📰 Haberler"], ["🎮 Oyun Gündemi", "🇹🇷 Türkiye"],
+    ["🏛️ Siyaset"],
     ["📊 İlerleme", "🔊 Telaffuz"],
     ["➡️ Sonraki gün"],
 ], resize_keyboard=True)
@@ -46,6 +47,9 @@ BOT_COMMANDS = [
     BotCommand("siyaset", "Türkiye siyaseti ve partiler"),
     BotCommand("tbmm", "TBMM ve Meclis haberleri"),
     BotCommand("sondakika", "Türkiye son dakika haberleri"),
+    BotCommand("oyun", "Genel oyun dünyasından haberler"),
+    BotCommand("brawlstars", "Brawl Stars güncel haberleri"),
+    BotCommand("gta6", "GTA 6 haberleri ve duyuruları"),
     BotCommand("lesson", "Günlük İngilizce dersi"),
     BotCommand("quiz", "Kelime testi"),
     BotCommand("review", "Kelime tekrarları"),
@@ -95,7 +99,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "💬 Konuşma: Gemini ile İngilizce pratik\n"
         "❓ AI Soru Sor: Aklına geleni sor\n"
         "🔊 Telaffuz: Bir kelimenin sesini dinle\n"
-        "📰 Haberler: Türkiye, siyaset ve son dakika haberleri; Gemini'ye sor\n\n"
+        "📰 Haberler: Türkiye, siyaset ve son dakika haberleri; Gemini'ye sor\n"
+        "🎮 Oyun Gündemi: Oyunlar, Brawl Stars ve GTA 6 haberleri\n\n"
         "İlk ders için 📚 Ders'e dokun. Bana doğrudan mesaj da yazabilirsin.",
         reply_markup=MENU,
     )
@@ -119,6 +124,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/progress ilerleme\n/next sıradaki gün\n/haberler son haberler\n"
         "/sondakika Türkiye son dakika\n/siyaset siyasi haberler\n"
         "/turkiye Türkiye gündemi\n/tbmm Meclis haberleri\n"
+        "/oyun oyun dünyası\n/brawlstars Brawl Stars\n/gta6 GTA 6\n"
         "/whoami ID öğren\n/help yardım\n\n"
         "Sesli mesaj gönderirsen Gemini konuşmanı çözümleyip geri bildirim verir.",
         reply_markup=MENU,
@@ -239,6 +245,9 @@ NEWS_CATEGORY_KEYBOARD = [
      InlineKeyboardButton("💰 Ekonomi", callback_data="news:ekonomi")],
     [InlineKeyboardButton("💻 Teknoloji", callback_data="news:teknoloji"),
      InlineKeyboardButton("🌐 BBC Türkçe", callback_data="news:bbc")],
+    [InlineKeyboardButton("🎮 Oyun Gündemi", callback_data="news:oyun")],
+    [InlineKeyboardButton("⭐ Brawl Stars", callback_data="news:brawlstars"),
+     InlineKeyboardButton("🚗 GTA 6", callback_data="news:gta6")],
 ]
 
 
@@ -249,14 +258,16 @@ async def show_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
         articles = await load_category(category)
     except Exception:
         LOG.exception("RSS feed fetch or parsing failed for %s", category)
-        msg = "⚠️ Haber kaynağına şu an erişilemiyor. Biraz sonra /haberler ile tekrar dene."
+        retry_command = "/oyun" if category in ("oyun", "brawlstars", "gta6") else "/haberler"
+        msg = f"⚠️ Haber kaynağına şu an erişilemiyor. Biraz sonra {retry_command} ile tekrar dene."
         if query:
             await query.message.reply_text(msg)
         else:
             await update.message.reply_text(msg)
         return
     label, source, _url = FEEDS[category]
-    header = f"📰 {label} — {source}\n\n"
+    emoji = "🎮" if category in ("oyun", "brawlstars", "gta6") else "📰"
+    header = f"{emoji} {label} — {source}\n\n"
     lines = [
         f"{n}. {article.title}\n   🗞️ {article.source} · 🕒 {article.published_label}"
         for n, article in enumerate(articles[:8], 1)
@@ -292,6 +303,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     category_by_command = {
         "/haberler": "turkiye", "/news": "turkiye", "/turkiye": "turkiye",
         "/sondakika": "trson", "/siyaset": "siyaset", "/tbmm": "tbmm",
+        "/oyun": "oyun", "/brawlstars": "brawlstars", "/gta6": "gta6",
     }
     await show_news(update, context, category=category_by_command.get(command, "turkiye"))
 
@@ -489,6 +501,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     }
     if text == "🏛️ Siyaset":
         await show_news(update, context, category="siyaset")
+    elif text == "🎮 Oyun Gündemi":
+        await show_news(update, context, category="oyun")
     elif text in button_map:
         await button_map[text](update, context)
     elif text == "🔊 Telaffuz":
@@ -514,11 +528,12 @@ def build_application():
         ("progress", progress), ("chat", chat_mode), ("ask", ask_mode),
         ("speak", speak), ("haberler", news_command), ("sondakika", news_command),
         ("turkiye", news_command), ("siyaset", news_command), ("tbmm", news_command),
-        ("news", news_command),
+        ("news", news_command), ("oyun", news_command),
+        ("brawlstars", news_command), ("gta6", news_command),
     ]:
         app.add_handler(CommandHandler(command, handler))
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
-    app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(turkiye|trson|siyaset|tbmm|son|gundem|dunya|ekonomi|teknoloji|bbc)$"))
+    app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(turkiye|trson|siyaset|tbmm|son|gundem|dunya|ekonomi|teknoloji|bbc|oyun|brawlstars|gta6)$"))
     app.add_handler(CallbackQueryHandler(article_callback, pattern=r"^article:[a-f0-9]{16}$"))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
