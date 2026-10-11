@@ -60,11 +60,33 @@ Render → Environment kısmında `ALLOWED_USER_ID` alanındaki `0` yerine kendi
 ID'ni yaz; kaydet ve yeniden deploy et. `0` kaldığı sürece botu bulan diğer
 Telegram kullanıcıları da Gemini API kotanı harcayabilir.
 
+## 📰 Güncel haberler ve Gemini'ye haber soruları
+
+Telegram sohbetinde `/` tuşuna bastığında komut listesi görünür. Menü bot her başlatıldığında
+`setMyCommands` ile otomatik kaydedilir.
+
+- `/haberler` veya `/sondakika`: Son 8 haber başlığını, kaynak ve yayın zamanı ile gösterir.
+- Butonlarla **Son Dakika, Gündem, Dünya, Ekonomi, Teknoloji ve BBC Türkçe** seçilebilir.
+- Haber butonuna basınca ilgili **başlık, RSS özeti, kaynak bağlantısı ve yayın tarihi** açılır.
+- Seçtikten sonra normal mesaj yazarak Gemini'ye o haber hakkında soru sorarsın;
+  `/ask` komutuyla yeniden genel yapay zekâ sohbetine geçersin.
+- Haberler TRT Haber'in resmi RSS akışlarından ve BBC Türkçe RSS akışından gelir.
+  Kaynaklar zaman zaman erişilemeyebilir veya haber özetleri yetersiz olabilir.
+- **Gemini tam haber metnini otomatik olarak okumaz; sadece RSS başlık ve özetini kullanır.**
+  Bilgi özette yoksa bunu söylemesi beklenir; yanlış veya eksik yanıt olasılığı vardır.
+- İstekler her iki dakikada bir güncellenen küçük bir önbellekten yararlanır.
+- Ücretsiz Render uyuduğunda seçili haberle sohbet bağlamı sıfırlanabilir;
+  `/haberler` üzerinden tekrar haber seçebilirsin.
+
+**Kullanıcı güvenliği:** Herkese açık botta Gemini API kullanımını diğer kullanıcılarla
+paylaşırsın. Sınırsız kullanım hedeflenmemelidir; API kota/harcamalarını izle.
+
 ## 🔧 Bot komutları
 
 | Komut | İşlev |
 |---|---|
 | `/start` | Menü ve kullanım açıklaması |
+| `/haberler`, `/sondakika` | Haberleri seç ve Gemini'ye haberi sor |
 | `/lesson` | Günün 5 kelimesi, 3 cümlesi ve diyalog |
 | `/quiz` | Çoktan seçmeli test |
 | `/review` | Aralıklı kelime tekrarı |
@@ -115,4 +137,5 @@ canlı Render ortamında yapılabilir. Bu repo API anahtarları içermez.
 - `db.py`: Geçici SQLite ilerlemesi
 - `postgres_db.py`: Kalıcı Neon/Postgres ilerlemesi
 - `render.yaml`: **Ücretsiz** Render web servisi ve güvenli anahtar girişleri
+- `news.py`: RSS haberleri, kategoriler, yayın tarihi ve linkler
 - `curriculum.py`, `quiz.py`, `tests/`: Dersler, testler ve kontroller
