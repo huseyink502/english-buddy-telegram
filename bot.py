@@ -16,10 +16,10 @@ from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandle
 
 from ai import GeminiTeacher
 from groq_ai import GroqNewsAssistant
+from news_memory import NewsMemory, TOPICS
 from curriculum import LESSONS, lesson_for, render_lesson
 from db import ProgressDB
 from news import CATEGORIES, FEEDS, find_article, load_category
-from news_memory import NewsMemory, TOPICS, TOPIC_IDS, unique_stories
 from quiz import questions_for
 
 load_dotenv()
@@ -32,7 +32,7 @@ LOG = logging.getLogger("english-buddy")
 MENU = ReplyKeyboardMarkup([
     ["📚 Ders", "🧠 Test"], ["🔁 Tekrar", "💬 Konuşma"],
     ["❓ AI Soru Sor", "📰 Haberler"], ["🎮 Oyun Gündemi", "🇹🇷 Türkiye"],
-    ["🏛️ Siyaset", "📰 Günlük Özet"],
+    ["🏛️ Siyaset"],
     ["📊 İlerleme", "🔊 Telaffuz"],
     ["➡️ Sonraki gün"],
 ], resize_keyboard=True)
@@ -43,13 +43,12 @@ if os.getenv("DATABASE_URL"):
 else:
     DB = ProgressDB(os.getenv("DB_PATH", "english_buddy.sqlite3"))
 TEACHER = None
-NEWS_MEMORY = NewsMemory(os.environ["DATABASE_URL"]) if os.getenv("DATABASE_URL") else None
 GROQ_NEWS_AI = None
 
 
 @lru_cache(maxsize=1)
 def get_news_memory():
-    """Initialize the optional shared Neon news store on first use."""
+    """Initialize optional Neon archive on first use."""
     url = os.getenv("DATABASE_URL", "").strip()
     if not url:
         return None
@@ -70,11 +69,6 @@ BOT_COMMANDS = [
     BotCommand("oyun", "Genel oyun dünyasından haberler"),
     BotCommand("brawlstars", "Brawl Stars güncel haberleri"),
     BotCommand("gta6", "GTA 6 haberleri ve duyuruları"),
-    BotCommand("ozet", "Günlük haber özetini göster"),
-    BotCommand("ozet_ac", "Günlük bildirimleri aç"),
-    BotCommand("ozet_kapat", "Günlük bildirimleri kapat"),
-    BotCommand("takip", "Takip edilen haber konuları"),
-    BotCommand("gelismeler", "Kaydedilen son haberler"),
     BotCommand("ozet", "Günlük haber özetini göster"),
     BotCommand("ozet_ac", "Günlük haber bildirimlerini aç"),
     BotCommand("ozet_kapat", "Günlük haber bildirimlerini kapat"),
@@ -267,116 +261,6 @@ async def quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 
-
-async def digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_access(update):
-        return
-    if NEWS_MEMORY is None:
-        await update.message.reply_text("💾 Günlük özet için Neon DATABASE_URL bağlantısı gerekli.")
-        return
-    day = await asyncio.to_thread(NEWS_MEMORY.latest_summary_day)
-    if day is None:
-        await update.message.reply_text("Henüz günlük özet yok; ilk haber taramasından sonra hazırlanır.")
-        return
-    _, topics = await asyncio.to_thread(NEWS_MEMORY.preferences, update.effective_user.id)
-    await update.message.reply_text(
-        await asyncio.to_thread(NEWS_MEMORY.formatted_digest, day, topics),
-        disable_web_page_preview=True,
-    )
-
-
-async def digest_enable(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_access(update):
-        return
-    if NEWS_MEMORY is None:
-        await update.message.reply_text("Neon bağlantısı henüz yapılmadı.")
-        return
-    await asyncio.to_thread(NEWS_MEMORY.setup)
-    await asyncio.to_thread(NEWS_MEMORY.subscribe, update.effective_user.id)
-    await update.message.reply_text(
-        "✅ Günlük haber özeti açıldı! 09.00'dan sonraki ilk taramada gönderilir. "
-        "/takip ile konuları düzenleyebilirsin."
-    )
-
-
-async def digest_disable(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_access(update):
-        return
-    if NEWS_MEMORY is None:
-        await update.message.reply_text("Neon bağlantısı henüz yapılmadı.")
-        return
-    await asyncio.to_thread(NEWS_MEMORY.unsubscribe, update.effective_user.id)
-    await update.message.reply_text("🔕 Günlük haber bildirimi kapatıldı.")
-
-
-def topics_keyboard(selected):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(
-            ("✅ " if key in selected else "⬜ ") + label,
-            callback_data=f"topic:{key}"
-        )]
-        for key, label in TOPICS.items()
-    ])
-
-
-async def topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_access(update):
-        return
-    if NEWS_MEMORY is None:
-        await update.message.reply_text("Neon bağlantısı henüz yapılmadı.")
-        return
-    enabled, selected = await asyncio.to_thread(NEWS_MEMORY.preferences, update.effective_user.id)
-    await update.message.reply_text(
-        "📰 Takip kategorilerin\n" +
-        ("Bildirimler açık ✅" if enabled else "Bildirimler kapalı 🔕") +
-        "\nDeğiştirmek için kategoriye bas:",
-        reply_markup=topics_keyboard(selected),
-    )
-
-
-async def topics_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    if not authorized(update):
-        await query.answer("Erişim yok", show_alert=True)
-        return
-    if NEWS_MEMORY is None:
-        await query.answer("Neon bağlantısı yok", show_alert=True)
-        return
-    category = query.data.split(":", 1)[1]
-    try:
-        selected = await asyncio.to_thread(NEWS_MEMORY.toggle_topic, update.effective_user.id, category)
-    except ValueError as exc:
-        await query.answer(str(exc), show_alert=True)
-        return
-    await query.answer("Kaydedildi")
-    await query.edit_message_reply_markup(reply_markup=topics_keyboard(selected))
-
-
-async def developments_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_access(update):
-        return
-    if NEWS_MEMORY is None:
-        await update.message.reply_text("Kalıcı haber hafızası için Neon gerekli.")
-        return
-    topic = context.args[0].lower() if context.args else "gta6"
-    if topic not in TOPICS:
-        await update.message.reply_text(
-            "Kategoriler: " + ", ".join(TOPIC_IDS) + "\nÖrnek: /gelismeler gta6"
-        )
-        return
-    since = datetime.now(ZoneInfo("Europe/Istanbul")) - timedelta(days=7)
-    rows = await asyncio.to_thread(NEWS_MEMORY.recent, topic, since, 15)
-    rows = unique_stories(rows, limit=7)
-    if not rows:
-        await update.message.reply_text("Bu kategori için son 7 günde kayıtlı haber yok.")
-        return
-    lines = [f"• {a['title'][:155]}\n{a['source']} — {a['url']}" for a in rows]
-    await update.message.reply_text(
-        f"🗂️ {TOPICS[topic]} — Son 7 gün\n\n" + "\n\n".join(lines),
-        disable_web_page_preview=True,
-    )
-
-
 NEWS_CATEGORY_KEYBOARD = [
     [InlineKeyboardButton("🇹🇷 Türkiye", callback_data="news:turkiye"),
      InlineKeyboardButton("🏛️ Siyaset", callback_data="news:siyaset")],
@@ -417,7 +301,7 @@ async def show_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
         for n, article in enumerate(articles[:8], 1)
     ]
     text = header + "\n\n".join(lines) + (
-        "\n\nBir haberi seç; Gemini'ye o haber hakkında soru sorabilirsin. "
+        "\n\nBir haberi seç; Gemini veya Groq'ya o haber hakkında soru sorabilirsin. "
         "Başlık ve özet haber kaynağından gelir."
     )
     buttons = [
@@ -472,13 +356,15 @@ async def article_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     await query.answer()
     article_key = query.data.split(":", 1)[1]
-    article = await find_article(article_key)
-    if article is None and os.getenv("DATABASE_URL"):
+    article = None
+    if os.getenv("DATABASE_URL"):
         try:
             memory = await asyncio.to_thread(get_news_memory)
             article = await asyncio.to_thread(memory.get_article, article_key) if memory else None
         except Exception:
-            LOG.exception("Failed to load archived news article")
+            LOG.warning("Archived news lookup unavailable")
+    if article is None:
+        article = await find_article(article_key)
     if article is None:
         await query.message.reply_text(
             "⚠️ Bu haber artık güncel listede bulunamadı. /haberler ile yeniden seç."
@@ -496,7 +382,7 @@ async def article_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"{article.summary or 'Bu kaynak haber özeti paylaşmamış.'}\n\n"
         f"🔗 Haberin tamamı: {article.url}\n\n"
         "💬 Bu haber hakkında sorun varsa doğrudan yazabilirsin. "
-        "Gemini yalnızca yukarıdaki RSS bilgilerini gördüğü için "
+        "Yapay zekâ yalnızca RSS bilgilerini ve kayıtlı haber başlıklarını gördüğü için "
         "haberin tam metnini okumuş gibi yanıt vermez.\n"
         "Genel yapay zekâ sohbetine dönmek için /ask yaz."
     )
@@ -516,20 +402,19 @@ async def ask_news_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, questi
         if GROQ_NEWS_AI is not None:
             related = []
             category = context.user_data.get("selected_news_category")
-            if category in TOPICS and NEWS_MEMORY is not None:
+            if category in TOPICS and os.getenv("DATABASE_URL"):
                 try:
+                    memory = await asyncio.to_thread(get_news_memory)
                     related = await asyncio.to_thread(
-                        NEWS_MEMORY.recent, category,
+                        memory.recent, category,
                         datetime.now(ZoneInfo("Europe/Istanbul")) - timedelta(days=14), 6
-                    )
+                    ) if memory else []
                 except Exception:
-                    LOG.warning("Archived context unavailable; using selected article")
+                    LOG.warning("Archived context unavailable; selected article still available")
             try:
-                answer = await GROQ_NEWS_AI.answer_news_question(
-                    article, question, history, related
-                )
+                answer = await GROQ_NEWS_AI.answer_news_question(article, question, history, related)
             except Exception:
-                LOG.exception("Groq unavailable, falling back to Gemini")
+                LOG.exception("Groq news AI failed; falling back to Gemini")
                 answer = await TEACHER.answer_news_question(article, question, history)
         else:
             answer = await TEACHER.answer_news_question(article, question, history)
@@ -543,7 +428,6 @@ async def ask_news_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, questi
     context.user_data["news_history"] = history[-6:]
     for offset in range(0, len(answer), 3900):
         await update.message.reply_text(answer[offset:offset + 3900])
-
 
 
 def topics_keyboard(selected: list[str]) -> InlineKeyboardMarkup:
@@ -787,8 +671,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     }
     if text == "🏛️ Siyaset":
         await show_news(update, context, category="siyaset")
-    elif text == "📰 Günlük Özet":
-        await digest_command(update, context)
     elif text == "🎮 Oyun Gündemi":
         await show_news(update, context, category="oyun")
     elif text in button_map:
@@ -817,17 +699,17 @@ def build_application():
         ("progress", progress), ("chat", chat_mode), ("ask", ask_mode),
         ("speak", speak), ("haberler", news_command), ("sondakika", news_command),
         ("turkiye", news_command), ("siyaset", news_command), ("tbmm", news_command),
-        ("ozet", digest_command), ("ozet_ac", digest_enable),
-        ("ozet_kapat", digest_disable), ("takip", topics_command),
-        ("gelismeler", developments_command),
         ("news", news_command), ("oyun", news_command),
         ("brawlstars", news_command), ("gta6", news_command),
+        ("ozet", news_settings), ("ozet_ac", news_settings),
+        ("ozet_kapat", news_settings), ("takip", news_settings),
+        ("gelismeler", news_settings),
     ]:
         app.add_handler(CommandHandler(command, handler))
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
     app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(turkiye|trson|siyaset|tbmm|son|gundem|dunya|ekonomi|teknoloji|bbc|oyun|brawlstars|gta6)$"))
     app.add_handler(CallbackQueryHandler(article_callback, pattern=r"^article:[a-f0-9]{16}$"))
-    app.add_handler(CallbackQueryHandler(topics_callback, pattern=r"^topic:(gta6|brawlstars|siyaset|teknoloji|dunya)$"))
+    app.add_handler(CallbackQueryHandler(topic_callback, pattern=r"^topic:(gta6|brawlstars|siyaset|teknoloji|dunya)$"))
     app.add_handler(MessageHandler(filters.VOICE, on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     LOG.info("English Buddy initialized (Gemini model: %s)", os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"))
