@@ -76,6 +76,8 @@ class NewsParserTests(unittest.TestCase):
         self.assertIn("oyun", names)
         self.assertIn("brawlstars", names)
         self.assertIn("gta6", names)
+        for name in ("ozet", "ozet_ac", "ozet_kapat", "takip", "gelismeler"):
+            self.assertIn(name, names)
         self.assertTrue(all(name.isascii() and name.islower() for name in names))
 
 
