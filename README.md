@@ -213,3 +213,45 @@ commit mesajlarına veya ekran görüntülerine yazma**.
   gönderip kayıt öncesinde hata vermesi gibi istisnalarda tekrar teslim mümkündür.
 - Ücretsiz Groq, GitHub Actions, Render ve Neon planlarının her birinde
   kota/limit vardır.
+
+
+## 🔐 Admin paneli (Web + Telegram)
+
+Yalnızca bot sahibi erişebilir. Varsayılan olarak **yönetim kapalıdır**.
+Render → Environment bölümüne aşağıdaki iki değişkeni ekleyin:
+
+- `ADMIN_USER_ID`: Telegram'da `/whoami` komutundan öğrendiğiniz **kendi sayısal ID'niz**; `ALLOWED_USER_ID` ile karıştırmayın. `ADMIN_USER_ID=0` iken Telegram'daki admin komutları kapalıdır.
+- `ADMIN_WEB_PASSWORD`: En az **20 karakterlik, benzersiz ve güçlü** parola. Telegram mesajı veya kod dosyasında paylaşmayın. Parolayı bir parola yöneticisi ile üretmek önerilir.
+
+Mevcut `DATABASE_URL` Neon bağlantısı kullanılacaktır; ikinci bir veritabanı gerekmez.
+Ayarları kaydedip Render dağıtımı tamamlanınca:
+- Web paneli: `https://english-buddy-telegram.onrender.com/admin`
+- Telegram: `/admin`, `/admin_kullanicilar`, `/admin_sohbet <TelegramID>`,
+  `/admin_duyuru <Duyuru metni>`
+
+**Bildirim izni varsayılan olarak kapalıdır.** Kullanıcı `/duyuru_ac` yazarsa yönetici
+duyurusu alabilir; `/duyuru_kapat` ile vazgeçer. Haber bildirimi
+`/ozet_ac` izninden tamamen ayrıdır. Kullanıcıların
+`/start` komutu kullanması, yönetici duyurusuna otomatik abone yapmaz.
+
+**Sohbet metinleri varsayılan olarak saklanmaz.** Her kullanıcı
+`/gizlilik` ile açıklamayı görür. Açıkça `/kayit_ac` yazan kullanıcıların
+bundan sonraki metin girdileri ve AI yanıtları en fazla 30 gün saklanır;
+`/kayit_kapat` veya `/kayit_sil` kaydı durdurur ve saklanmış sohbet
+metinlerini siler. Dikkat: süre aşan kayıtlar okuma ve yazma sırasında
+filtrelenir/temizlenir; tam veri silme için düzenli temizlik görevi eklenmelidir.
+Sesli mesajların ham dosyaları, Telegram erişim tokenları ve API anahtarları
+bu panelde saklanmaz. Kullanıcı ID, kullanıcı adı ve son etkinlik tarihi
+güvenlik ve yönetim amacıyla tutulur; kullanıcıya `/start` ve `/gizlilik`
+ile bu durum bildirilir.
+
+Web paneli; HTTPS üzerinde imzalı, HttpOnly/Secure/SameSite=Strict çerez,
+CSRF doğrulaması ve temel başarısız giriş sınırı kullanır. `/admin` yolu
+Render'da HTTPS ile açılmalıdır; API anahtarı veya yönetici parolası
+URL parametresi olarak eklenmemelidir. Tüm gönderilen duyurular yalnızca
+mevcut izni olan kullanıcılara yollanır. Botu engelleyen kullanıcıya
+Telegram mesajı ulaşmaz.
+
+Güvenlik notu: Parola tabanlı bu ilk sürümde çok faktörlü doğrulama ve
+merkezî, kalıcı IP sınırlaması bulunmamaktadır. Daha büyük kamuya açık bot
+için Telegram kimlik doğrulaması/2FA ve ayrı bir görev kuyruğu eklenmelidir.
