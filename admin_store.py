@@ -6,6 +6,7 @@ the user explicitly opts in. Records older than 30 days are purged on reads/writ
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import time
 
 import psycopg
 
@@ -15,6 +16,7 @@ class AdminStore:
         if not url:
             raise ValueError("DATABASE_URL is required")
         self.url = url
+        self._last_purge = 0.0
 
     def _connect(self):
         return psycopg.connect(self.url, connect_timeout=15)
@@ -42,6 +44,10 @@ class AdminStore:
                 )
             """)
             con.execute("""
+                CREATE INDEX IF NOT EXISTS ix_admin_chat_created_at
+                ON admin_chat_messages (created_at)
+            """)
+            con.execute("""
                 CREATE INDEX IF NOT EXISTS ix_admin_chat_recent
                 ON admin_chat_messages (user_id, created_at DESC)
             """)
@@ -56,6 +62,18 @@ class AdminStore:
                 )
             """)
 
+    def purge_if_due(self):
+        """Sweep records past 30 days when the service receives activity."""
+        now = time.monotonic()
+        if now - self._last_purge < 3600:
+            return
+        with self._connect() as con:
+            con.execute("""
+                DELETE FROM admin_chat_messages
+                WHERE created_at < NOW() - INTERVAL '30 days'
+            """)
+        self._last_purge = now
+
     def seen(self, user_id: int, username: str | None, first_name: str | None):
         """Store basic bot membership metadata; never record message text here."""
         with self._connect() as con:
@@ -67,6 +85,7 @@ class AdminStore:
                     first_name=EXCLUDED.first_name,
                     last_seen_at=NOW()
             """, (user_id, (username or "")[:80], (first_name or "")[:100]))
+        self.purge_if_due()
 
     def set_consent(self, user_id: int, column: str, enabled: bool):
         if column not in ("transcript_enabled", "announcements_enabled"):
