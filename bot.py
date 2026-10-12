@@ -79,7 +79,7 @@ BOT_COMMANDS = [
     BotCommand("quiz", "Kelime testi"),
     BotCommand("review", "Kelime tekrarları"),
     BotCommand("chat", "İngilizce konuşma pratiği"),
-    BotCommand("ask", "Gemini'ye serbest soru sor"),
+    BotCommand("ask", "Yapay zekâya her konuda soru sor"),
     BotCommand("progress", "Öğrenme ilerlemesi"),
     BotCommand("speak", "İngilizce telaffuz dinle"),
     BotCommand("next", "Bir sonraki ders günü"),
@@ -117,12 +117,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     DB.ensure_user(user_id)
     context.user_data["mode"] = "ask"
     await update.message.reply_text(
-        "👋 English Buddy'ye hoş geldin! Sıfırdan günlük İngilizce öğreneceğiz.\n\n"
+        "👋 Karamaz Akademi'ye hoş geldin! İngilizce öğrenebilir, haberleri inceleyebilir ve yapay zekâya istediğin konuyu sorabilirsin.\n\n"
         "📚 Ders: Bugünün 5 kelimesi ve 3 cümlesi\n"
         "🧠 Test: Kısa çoktan seçmeli sınav\n"
         "🔁 Tekrar: Zamanı gelen kelimeler\n"
         "💬 Konuşma: Gemini ile İngilizce pratik\n"
-        "❓ AI Soru Sor: Aklına geleni sor\n"
+        "❓ AI Soru Sor: Yazılım, bilim, teknoloji, tarih ve daha fazlası\n"
         "🔊 Telaffuz: Bir kelimenin sesini dinle\n"
         "📰 Haberler: Türkiye, siyaset ve son dakika haberleri; Gemini'ye sor\n"
         "🎮 Oyun Gündemi: Oyunlar, Brawl Stars ve GTA 6 haberleri\n\n"
@@ -578,7 +578,13 @@ async def ask_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data["mode"] = "ask"
     context.user_data["chat_history"] = []
     await update.message.reply_text(
-        "❓ Gemini'ye dilediğini sor. Örnek: 'I want ile I need arasında ne fark var?'",
+        "🧠 Karamaz AI — Genel sohbet modundasın!\\n\\n"
+        "Python, elektronik, teknoloji, matematik, tarih, oyunlar veya günlük hayatla "
+        "ilgili istediğini sorabilirsin.\\n\\n"
+        "Örnek: 'Python ile Telegram botu nasıl yapılır?' veya "
+        "'Elektrik alan şiddetini detaylı anlat.'\\n\\n"
+        "Bir önceki sorunun devamını da sorabilirsin. İngilizce konuşma pratiği "
+        "için /chat yaz. Güncel haberler için /haberler menüsünü kullan.",
         reply_markup=MENU,
     )
 
