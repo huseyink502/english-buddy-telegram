@@ -56,3 +56,45 @@ class GroqNewsAssistant:
         if not isinstance(result, str) or not result.strip():
             raise ValueError("Groq returned an empty response")
         return result.strip()
+
+
+    async def answer_general(self, message: str, history: list[tuple[str, str]],
+                             practice: bool = False) -> str:
+        """Continue a private user's general conversation if Gemini is overloaded."""
+        if practice:
+            system = (
+                "Sen Karamaz Akademi'nin İngilizce konuşma öğretmenisin. "
+                "Türkçe konuşan başlangıç öğrencisiyle A0/A1 düzeyinde konuş. "
+                "Yanlışları kibarca düzelt, kısa Türkçe ipuçları ve tek bir "
+                "basit İngilizce soru ver. Uydurma bilgi verme."
+            )
+        else:
+            system = (
+                "Sen Karamaz Akademi'nin genel amaçlı yardımcı asistanısın. "
+                "Kullanıcıya Türkçe, açık, doğru ve doğrudan yanıt ver. "
+                "İngilizce öğretmeni rolüne girme, kullanıcı isterse İngilizce anlat. "
+                "Güncel verilere erişimin yoksa güncel gelişmeleri biliyormuş gibi davranma."
+            )
+        messages = [{"role": "system", "content": system}]
+        for role, value in history[-10:]:
+            messages.append({
+                "role": "assistant" if role == "model" else "user",
+                "content": value[:3000],
+            })
+        messages.append({"role": "user", "content": message[:3000]})
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "max_completion_tokens": 1600,
+                    "reasoning_effort": "low",
+                },
+            )
+            response.raise_for_status()
+            result = response.json()["choices"][0]["message"]["content"]
+        if not isinstance(result, str) or not result.strip():
+            raise ValueError("Groq returned an empty general-chat response")
+        return result.strip()
