@@ -578,11 +578,11 @@ async def ask_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data["mode"] = "ask"
     context.user_data["chat_history"] = []
     await update.message.reply_text(
-        "🧠 Karamaz AI — Genel sohbet modundasın!\\n\\n"
+        "🧠 Karamaz AI — Genel sohbet modundasın!\n\n"
         "Python, elektronik, teknoloji, matematik, tarih, oyunlar veya günlük hayatla "
-        "ilgili istediğini sorabilirsin.\\n\\n"
+        "ilgili istediğini sorabilirsin.\n\n"
         "Örnek: 'Python ile Telegram botu nasıl yapılır?' veya "
-        "'Elektrik alan şiddetini detaylı anlat.'\\n\\n"
+        "'Elektrik alan şiddetini detaylı anlat.'\n\n"
         "Bir önceki sorunun devamını da sorabilirsin. İngilizce konuşma pratiği "
         "için /chat yaz. Güncel haberler için /haberler menüsünü kullan.",
         reply_markup=MENU,
