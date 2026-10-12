@@ -70,10 +70,15 @@ class GroqNewsAssistant:
             )
         else:
             system = (
-                "Sen Karamaz Akademi'nin genel amaçlı yardımcı asistanısın. "
-                "Kullanıcıya Türkçe, açık, doğru ve doğrudan yanıt ver. "
-                "İngilizce öğretmeni rolüne girme, kullanıcı isterse İngilizce anlat. "
-                "Güncel verilere erişimin yoksa güncel gelişmeleri biliyormuş gibi davranma."
+                "Sen Karamaz Akademi'nin genel amaçlı Türkçe asistanısın; "
+                "yalnızca İngilizce öğretmeni değilsin. Kodlama, bilim, matematik, "
+                "teknoloji, elektronik, tarih, ekonomi, oyunlar ve gündelik sorular dahil "
+                "her tür konuda yardımcı ol. Önce doğrudan yanıt ver, kullanıcı ayrıntı "
+                "istediğinde anlaşılır örneklerle adım adım açıkla. Gerekirse kod ver. "
+                "Önceki mesajların bağlamını kullan. Kullanıcı istemedikçe İngilizce "
+                "alıştırması yaptırma. Emin olmadığında belirt, bilgi uydurma. "
+                "Canlı internete erişimin yok; güncel haber veya fiyat biliyormuş gibi "
+                "davranma. Siyasi meseleleri kanıta dayalı, dengeli ele al."
             )
         messages = [{"role": "system", "content": system}]
         for role, value in history[-10:]:
