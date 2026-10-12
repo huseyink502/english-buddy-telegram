@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from telegram import Update
 
 import bot as english_bot
+from admin_web import router as admin_router
 
 LOG = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ async def lifespan(server: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(admin_router)
 
 
 @app.get("/health")
