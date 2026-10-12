@@ -12,9 +12,10 @@ from dotenv import load_dotenv
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import BadRequest
-from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, TypeHandler, filters
 
 from ai import GeminiTeacher
+from admin_telegram import observe, note_reply, owner_commands, privacy_commands
 from ai_fallback import generate_with_fallback, is_retryable_gemini_error
 from groq_ai import GroqNewsAssistant
 from news_memory import NewsMemory, TOPICS
@@ -84,6 +85,16 @@ BOT_COMMANDS = [
     BotCommand("speak", "İngilizce telaffuz dinle"),
     BotCommand("next", "Bir sonraki ders günü"),
     BotCommand("help", "Yardım ve komutlar"),
+    BotCommand("gizlilik", "Kullanıcı verileri ve izinler"),
+    BotCommand("kayit_ac", "Sohbet kaydına izin ver"),
+    BotCommand("kayit_kapat", "Sohbet kaydını durdur ve sil"),
+    BotCommand("kayit_sil", "Sohbet geçmişi kayıtlarını sil"),
+    BotCommand("duyuru_ac", "Yönetici duyurularına abone ol"),
+    BotCommand("duyuru_kapat", "Duyuruları kapat"),
+    BotCommand("admin", "Yönetici paneli (sadece sahip)"),
+    BotCommand("admin_kullanicilar", "Yönetici: kullanıcılar"),
+    BotCommand("admin_sohbet", "Yönetici: izinli sohbet kaydı"),
+    BotCommand("admin_duyuru", "Yönetici: duyuru gönder"),
 ]
 
 
@@ -126,6 +137,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🔊 Telaffuz: Bir kelimenin sesini dinle\n"
         "📰 Haberler: Türkiye, siyaset ve son dakika haberleri; Gemini'ye sor\n"
         "🎮 Oyun Gündemi: Oyunlar, Brawl Stars ve GTA 6 haberleri\n\n"
+        "🔐 Güvenlik için Telegram ID ve son etkinlik tutulur; sohbet içeriğin yalnızca "
+        "/kayit_ac izniyle saklanır. Duyuru tercihi /duyuru_ac. Ayrıntılar: /gizlilik\n\n"
         "İlk ders için 📚 Ders'e dokun. Bana doğrudan mesaj da yazabilirsin.",
         reply_markup=MENU,
     )
@@ -153,6 +166,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/ozet_kapat bildirimi kapat\n/takip kategori seç\n"
         "/gelismeler gta6 arşivi aç\n"
         "/oyun oyun dünyası\n/brawlstars Brawl Stars\n/gta6 GTA 6\n"
+        "/gizlilik veri politikası\n/kayit_ac sohbet kaydına izin ver\n"
+        "/kayit_kapat kaydı kapat ve sil\n/kayit_sil kayıtları sil\n"
+        "/duyuru_ac duyuruları aç\n/duyuru_kapat duyuruları kapat\n"
         "/whoami ID öğren\n/help yardım\n\n"
         "Sesli mesaj gönderirsen Gemini konuşmanı çözümleyip geri bildirim verir.",
         reply_markup=MENU,
@@ -427,6 +443,7 @@ async def ask_news_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, questi
         return
     history.extend([("user", question), ("model", answer)])
     context.user_data["news_history"] = history[-6:]
+    await note_reply(update, answer)
     for offset in range(0, len(answer), 3900):
         await update.message.reply_text(answer[offset:offset + 3900])
 
@@ -619,6 +636,7 @@ async def ask_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, message: st
         answer = "↪️ Gemini yoğun olduğu için bu yanıt Groq üzerinden oluşturuldu.\n\n" + answer
     history.extend([("user", message), ("model", answer)])
     context.user_data["chat_history"] = history[-10:]
+    await note_reply(update, answer)
     # Telegram messages are limited in size. Split long responses safely.
     for chunk_start in range(0, len(answer), 3900):
         await update.message.reply_text(answer[chunk_start:chunk_start + 3900])
@@ -724,8 +742,14 @@ def build_application():
         ("ozet", news_settings), ("ozet_ac", news_settings),
         ("ozet_kapat", news_settings), ("takip", news_settings),
         ("gelismeler", news_settings),
+        ("gizlilik", privacy_commands), ("kayit_ac", privacy_commands),
+        ("kayit_kapat", privacy_commands), ("kayit_sil", privacy_commands),
+        ("duyuru_ac", privacy_commands), ("duyuru_kapat", privacy_commands),
+        ("admin", owner_commands), ("admin_kullanicilar", owner_commands),
+        ("admin_sohbet", owner_commands), ("admin_duyuru", owner_commands),
     ]:
         app.add_handler(CommandHandler(command, handler))
+    app.add_handler(TypeHandler(Update, observe), group=-1)
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
     app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(turkiye|trson|siyaset|tbmm|son|gundem|dunya|ekonomi|teknoloji|bbc|oyun|brawlstars|gta6)$"))
     app.add_handler(CallbackQueryHandler(article_callback, pattern=r"^article:[a-f0-9]{16}$"))
