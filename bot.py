@@ -15,6 +15,7 @@ from telegram.error import BadRequest
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from ai import GeminiTeacher
+from ai_fallback import generate_with_fallback, is_retryable_gemini_error
 from groq_ai import GroqNewsAssistant
 from news_memory import NewsMemory, TOPICS
 from curriculum import LESSONS, lesson_for, render_lesson
@@ -590,13 +591,26 @@ async def ask_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, message: st
     history = context.user_data.setdefault("chat_history", [])
     practice = context.user_data.get("mode", "ask") == "chat"
     try:
-        answer = await TEACHER.reply(message, history, practice=practice)
-    except Exception:
-        LOG.exception("Gemini text request failed")
-        await update.message.reply_text(
-            "⚠️ Gemini'den yanıt alamadım. API anahtarını, model erişimini ve kotanı kontrol et."
+        answer, provider = await generate_with_fallback(
+            TEACHER, GROQ_NEWS_AI, message, history, practice=practice
         )
+    except Exception as exc:
+        # Do not include user text or API credentials in production logs.
+        LOG.warning("AI chat failed (%s, code=%s)", type(exc).__name__, getattr(exc, "code", None))
+        if is_retryable_gemini_error(exc):
+            hint = (
+                "⚠️ Gemini sunucusu şu anda yoğun (geçici hata). "
+                "Biraz sonra tekrar dene. Groq yedeği de kullanılamadı."
+            )
+        else:
+            hint = (
+                "⚠️ Yapay zekâ şu anda yanıt veremiyor. "
+                "Gemini/Groq bağlantısını veya API kullanım sınırını kontrol et."
+            )
+        await update.message.reply_text(hint)
         return
+    if provider == "groq":
+        answer = "↪️ Gemini yoğun olduğu için bu yanıt Groq üzerinden oluşturuldu.\\n\\n" + answer
     history.extend([("user", message), ("model", answer)])
     context.user_data["chat_history"] = history[-10:]
     # Telegram messages are limited in size. Split long responses safely.
