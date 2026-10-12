@@ -610,7 +610,7 @@ async def ask_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, message: st
         await update.message.reply_text(hint)
         return
     if provider == "groq":
-        answer = "↪️ Gemini yoğun olduğu için bu yanıt Groq üzerinden oluşturuldu.\\n\\n" + answer
+        answer = "↪️ Gemini yoğun olduğu için bu yanıt Groq üzerinden oluşturuldu.\n\n" + answer
     history.extend([("user", message), ("model", answer)])
     context.user_data["chat_history"] = history[-10:]
     # Telegram messages are limited in size. Split long responses safely.
