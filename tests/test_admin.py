@@ -44,7 +44,8 @@ class AdminAuthTests(unittest.TestCase):
                                 "headers": [(b"cookie", ("karamaz_admin=" + cookie).encode())],
                                 "scheme": "https", "server": ("testserver", 443)})
             self.assertTrue(admin_web.is_admin(request(signed)))
-            self.assertFalse(admin_web.is_admin(request(signed[:-1] + "0")))
+            replacement = "0" if signed[-1] != "0" else "1"
+            self.assertFalse(admin_web.is_admin(request(signed[:-1] + replacement)))
 
 
 class AdminWebTests(unittest.TestCase):
