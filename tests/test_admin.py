@@ -70,7 +70,7 @@ class AdminWebTests(unittest.TestCase):
                 "ADMIN_USER_ID": "42", "DATABASE_URL": "fake",
                 "ADMIN_WEB_PASSWORD": "not-a-real-secret-but-over-twenty-characters",
             }
-            with patch.dict(os.environ, creds), patch.object(admin_web, "storage", return_value=db), patch("admin_store.asyncio.sleep", new_callable=AsyncMock):
+            with patch.dict(os.environ, creds), patch.object(admin_web, "storage", return_value=db), patch("asyncio.sleep", new_callable=AsyncMock):
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="https://testserver") as client:
                     unauthorized = await client.get("/admin")
