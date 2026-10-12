@@ -149,7 +149,8 @@ async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat and update.effective_chat.type == "private" and update.effective_user:
         await update.message.reply_text(
             f"🪪 Telegram kullanıcı ID'n: {update.effective_user.id}\n"
-            "Bunu .env dosyasında ALLOWED_USER_ID alanına yazabilirsin."
+            "Bot yöneticisi olarak kullanmak için Render Environment alanında ADMIN_USER_ID değişkenine kendi ID’ni yaz.\n"\
+            "ALLOWED_USER_ID farklıdır; tüm kullanıcıların erişimini kısıtlar."
         )
 
 
