@@ -236,16 +236,33 @@ duyurusu alabilir; `/duyuru_kapat` ile vazgeçer. Haber bildirimi
 `/ozet_ac` izninden tamamen ayrıdır. Kullanıcıların
 `/start` komutu kullanması, yönetici duyurusuna otomatik abone yapmaz.
 
-**Sohbet metinleri varsayılan olarak saklanmaz.** Her kullanıcı
-`/gizlilik` ile açıklamayı görür. Açıkça `/kayit_ac` yazan kullanıcıların
-bundan sonraki metin girdileri ve AI yanıtları en fazla 30 gün saklanır;
-`/kayit_kapat` veya `/kayit_sil` kaydı durdurur ve saklanmış sohbet
-metinlerini siler. Dikkat: süre aşan kayıtlar okuma ve yazma sırasında
-filtrelenir/temizlenir; tam veri silme için düzenli temizlik görevi eklenmelidir.
-Sesli mesajların ham dosyaları, Telegram erişim tokenları ve API anahtarları
-bu panelde saklanmaz. Kullanıcı ID, kullanıcı adı ve son etkinlik tarihi
-güvenlik ve yönetim amacıyla tutulur; kullanıcıya `/start` ve `/gizlilik`
-ile bu durum bildirilir.
+**Sohbet kayıtları:** Yeni kullanıcılarda bot, ilk etkileşimde mesaj içeriğinin
+güvenlik ve destek amacıyla bot sahibi tarafından incelenmek üzere en fazla 30 gün
+saklanabileceğini açıkça bildirir. **Bu ilk mesaj arşivlenmez.** Bildirim
+Telegram üzerinden başarıyla iletildikten sonra sonraki metin mesajları ve
+AI yanıtları saklanır; komut metinleri, ses dosyaları ve API anahtarları
+kaydedilmez. Daha önceki sürümde kayıt tercihi bulunan mevcut kullanıcıların
+tercihleri (açık veya kapalı) **değiştirilmez**. Bunun nedeni önceki kapalı
+durumun açık bir devre dışı bırakma tercihi olup olmadığının bilinememesidir.
+Bu kullanıcılar isterlerse kaydı sonradan kendileri açabilir.
+
+Komut menüsünde yalnızca \`/gizlilik\` bulunur. Bu ekranda kayıt durumunu
+gösteren **Kaydı aç**, **Kaydı durdur ve geçmişi sil** ve **Kayıtlarımı sil**
+butonları vardır. Önceki \`/kayit_ac\`, \`/kayit_kapat\`, \`/kayit_sil\` komutları
+eski bağlantılar bozulmasın diye çalışmaya devam eder fakat Telegram'ın görünür
+komut menüsünden kaldırılmıştır. Kayıt kontrolü kullanıcıya aittir.
+
+Kayıtlar 30 gün sonra erişilemez, düzenli kullanıcı etkileşimlerinde temizlenir;
+hiç etkinlik olmayan dönemlerde otomatik zamanlı silmenin ayrıca planlanması
+gerekir. Telegram geçmiş mesajlarını geriye dönük topluca sunmaz.
+Kullanıcı ID'si, kullanıcı adı ve son etkinlik zamanı yönetim amaçlı saklanır.
+
+**Önemli hukukî not:** Mesaj içeriklerinin varsayılan olarak işlenmesi için,
+KVKK kapsamında amaca uygun bir işleme şartı, açık aydınlatma metni,
+veri minimizasyonu ve saklama süresi değerlendirilmelidir. Sırf botun sahibi
+olmak, tüm mesaj içeriklerini sınırsız saklama yetkisi vermez.
+Özellikle hassas içerikler için varsayılan kayıt yerine kullanıcı onaylı
+yaklaşım gerekebilir.
 
 Web paneli; HTTPS üzerinde imzalı, HttpOnly/Secure/SameSite=Strict çerez,
 CSRF doğrulaması ve temel başarısız giriş sınırı kullanır. `/admin` yolu
