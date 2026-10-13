@@ -15,7 +15,7 @@ from telegram.error import BadRequest
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, TypeHandler, filters
 
 from ai import GeminiTeacher
-from admin_telegram import observe, note_reply, owner_commands, privacy_commands
+from admin_telegram import observe, note_reply, owner_commands, privacy_commands, admin_announcement_callback
 from ai_fallback import generate_with_fallback, is_retryable_gemini_error
 from groq_ai import GroqNewsAssistant
 from news_memory import NewsMemory, TOPICS
@@ -751,6 +751,7 @@ def build_application():
     ]:
         app.add_handler(CommandHandler(command, handler))
     app.add_handler(TypeHandler(Update, observe), group=-1)
+    app.add_handler(CallbackQueryHandler(admin_announcement_callback, pattern=r"^admin:(confirm|cancel):[0-9a-f]{12}$"))
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
     app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(turkiye|trson|siyaset|tbmm|son|gundem|dunya|ekonomi|teknoloji|bbc|oyun|brawlstars|gta6)$"))
     app.add_handler(CallbackQueryHandler(article_callback, pattern=r"^article:[a-f0-9]{16}$"))

@@ -4,7 +4,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import secrets
+import time
 from functools import lru_cache
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from admin_store import AdminStore, send_announcement
 
@@ -186,9 +190,63 @@ async def owner_commands(update, context) -> None:
                 "Kullanım: /admin_duyuru Merhaba, yeni özellik yayında! (en fazla 1500 karakter)"
             )
             return
-        await update.message.reply_text("📣 İzinli alıcılara duyuru gönderiliyor...")
-        result = await send_announcement(context.bot, db, body)
+        recipients = await asyncio.to_thread(db.recipients)
+        if not recipients:
+            await update.message.reply_text(
+                "📭 Duyuru izni veren kullanıcı bulunamadı. "
+                "Kullanıcılar /duyuru_ac yazarak kayıt olabilir."
+            )
+            return
+        token = secrets.token_hex(6)
+        context.user_data["admin_draft"] = {
+            "token": token, "message": body, "created": time.monotonic(),
+        }
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Gönderimi onayla", callback_data=f"admin:confirm:{token}"),
+            InlineKeyboardButton("❌ Vazgeç", callback_data=f"admin:cancel:{token}"),
+        ]])
         await update.message.reply_text(
-            f"✅ Gönderim bitti. İzinli: {result['recipients']}, "
+            f"📣 Duyuru önizlemesi ({len(recipients)} izinli alıcı):\n\n"
+            f"{body}\n\nGöndermek için 5 dakika içinde onayla.",
+            reply_markup=keyboard,
+        )
+
+
+async def admin_announcement_callback(update, context):
+    """Prevent accidental or repeated mass-messaging from admin commands."""
+    query = update.callback_query
+    if not is_owner(update):
+        await query.answer("Erişim yok.", show_alert=True)
+        return
+    parts = (query.data or "").split(":")
+    if len(parts) != 3:
+        await query.answer("Geçersiz işlem.", show_alert=True)
+        return
+    _, action, token = parts
+    draft = context.user_data.get("admin_draft")
+    if not draft or draft["token"] != token or time.monotonic() - draft["created"] > 300:
+        await query.answer("Onay süresi doldu. Duyuruyu yeniden hazırla.", show_alert=True)
+        return
+    context.user_data.pop("admin_draft", None)
+    await query.answer()
+    if action == "cancel":
+        await query.edit_message_text("❌ Duyuru iptal edildi; hiçbir mesaj gönderilmedi.")
+        return
+    if action != "confirm":
+        return
+    await query.edit_message_text("📣 İzin veren kullanıcılara gönderiliyor...")
+    try:
+        db = await asyncio.to_thread(store)
+        if db is None:
+            raise RuntimeError("Missing Neon connection")
+        result = await send_announcement(context.bot, db, draft["message"])
+        await query.edit_message_text(
+            f"✅ Gönderim bitti. İzinli alıcı: {result['recipients']}, "
             f"başarılı: {result['sent']}, başarısız: {result['failed']}."
+        )
+    except Exception:
+        LOG.exception("Admin announcement failed")
+        await query.edit_message_text(
+            "⚠️ Gönderim tamamlanamadı. Bazı alıcılara ulaşmış olabilir; "
+            "yeniden denemeden önce sonuçları kontrol et."
         )

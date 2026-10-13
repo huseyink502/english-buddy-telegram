@@ -100,8 +100,14 @@ class AdminWebTests(unittest.TestCase):
                     self.assertEqual(blocked.status_code, 403)
                     bot.send_message.assert_not_awaited()
 
-                    sent = await client.post("/admin/announcement", data={
+                    unconfirmed = await client.post("/admin/announcement", data={
                         "csrf": csrf, "message": "Yeni özellik!"
+                    }, headers={"Origin": "https://testserver"})
+                    self.assertEqual(unconfirmed.status_code, 400)
+                    bot.send_message.assert_not_awaited()
+
+                    sent = await client.post("/admin/announcement", data={
+                        "csrf": csrf, "message": "Yeni özellik!", "confirm": "yes"
                     }, headers={"Origin": "https://testserver"})
                     self.assertEqual(sent.status_code, 200)
                     self.assertIn("Başarılı: 1", sent.text)
@@ -142,6 +148,80 @@ class AdminStorageTests(unittest.TestCase):
         insert = next(call for call in connection.execute.call_args_list
                       if "INSERT INTO admin_chat_messages" in call.args[0])
         self.assertEqual(len(insert.args[1][2]), 3000)
+
+    def test_admin_announcement_requires_owner_confirm_and_can_cancel(self):
+        from admin_telegram import owner_commands, admin_announcement_callback
+
+        async def run():
+            uid = 42
+            msg = SimpleNamespace(
+                text="/admin_duyuru Yeni özellik!",
+                reply_text=AsyncMock(),
+            )
+            upd = SimpleNamespace(
+                effective_user=SimpleNamespace(id=uid, username="owner", first_name="Owner"),
+                effective_chat=SimpleNamespace(type="private"),
+                message=msg,
+            )
+            db = MagicMock()
+            db.recipients.return_value = [51, 52]
+            ctx = SimpleNamespace(
+                args=["Yeni", "özellik!"],
+                user_data={},
+                bot=SimpleNamespace(send_message=AsyncMock()),
+            )
+            with patch.dict(os.environ, {"ADMIN_USER_ID": "42"}), patch("admin_telegram.store", return_value=db):
+                await owner_commands(upd, ctx)
+                ctx.bot.send_message.assert_not_awaited()
+                sent_keyboard = msg.reply_text.call_args.kwargs["reply_markup"]
+                confirm_data = sent_keyboard.inline_keyboard[0][0].callback_data
+                token = confirm_data.split(":")[-1]
+                self.assertEqual(ctx.user_data["admin_draft"]["token"], token)
+                query = SimpleNamespace(
+                    data=f"admin:cancel:{token}",
+                    answer=AsyncMock(),
+                    edit_message_text=AsyncMock(),
+                )
+                cb_update = SimpleNamespace(
+                    effective_user=upd.effective_user,
+                    effective_chat=upd.effective_chat,
+                    callback_query=query,
+                )
+                await admin_announcement_callback(cb_update, ctx)
+                ctx.bot.send_message.assert_not_awaited()
+                self.assertNotIn("admin_draft", ctx.user_data)
+                self.assertIn("iptal", query.edit_message_text.call_args.args[0])
+
+        asyncio.run(run())
+
+    def test_non_owner_cannot_approve_broadcast(self):
+        from admin_telegram import admin_announcement_callback
+
+        async def run():
+            query = SimpleNamespace(
+                data="admin:confirm:012345abcdef",
+                answer=AsyncMock(),
+                edit_message_text=AsyncMock(),
+            )
+            cb_update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=24),
+                effective_chat=SimpleNamespace(type="private"),
+                callback_query=query,
+            )
+            ctx = SimpleNamespace(
+                user_data={"admin_draft": {
+                    "token": "012345abcdef", "message": "Unauthorized",
+                    "created": __import__("time").monotonic()
+                }},
+                bot=SimpleNamespace(send_message=AsyncMock()),
+            )
+            with patch.dict(os.environ, {"ADMIN_USER_ID": "42"}):
+                await admin_announcement_callback(cb_update, ctx)
+            query.answer.assert_awaited_once()
+            query.edit_message_text.assert_not_awaited()
+            ctx.bot.send_message.assert_not_awaited()
+
+        asyncio.run(run())
 
 
 if __name__ == "__main__":
