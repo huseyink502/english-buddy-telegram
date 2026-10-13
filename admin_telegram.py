@@ -9,6 +9,7 @@ import time
 from functools import lru_cache
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationHandlerStop
 
 from admin_store import AdminStore, send_announcement
 
@@ -40,6 +41,98 @@ def is_owner(update) -> bool:
         and update.effective_chat is not None
         and update.effective_chat.type == "private"
     )
+
+
+PRIVACY_NOTICE_VERSION = 1
+
+
+def privacy_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Kayıtlı kullan (30 gün)", callback_data="privacy:accept")],
+        [InlineKeyboardButton("🔒 Kayıtsız devam et", callback_data="privacy:decline")],
+    ])
+
+
+def privacy_notice() -> str:
+    return (
+        "🔐 Karamaz Akademi — Gizlilik tercihi\\n\\n"
+        "Bot, kullanıcı yönetimi ve güvenlik için Telegram ID, kullanıcı adı "
+        "ve son etkinlik tarihini saklar.\\n\\n"
+        "✅ Kayıtlı kullan: Bundan sonraki metin mesajların ve AI cevapların "
+        "yalnızca bot sahibinin erişebildiği admin panelinde görüntülenebilir "
+        "ve en fazla 30 gün saklanır.\\n\\n"
+        "🔒 Kayıtsız devam et: Botu normal kullanabilirsin; konuşma metinlerin "
+        "yönetici panelinde saklanmaz.\\n\\n"
+        "Tercihini /gizlilik bölümünden değiştirebilir, /kayit_sil ile daha "
+        "önce kaydedilmiş metinlerini silebilirsin. AI'ya gönderdiğin mesajlar "
+        "yanıt üretmek için Gemini veya Groq sağlayıcılarına iletilebilir. "
+        "Günlük haber bildirimleri ve yönetici duyuruları ayrı izinler gerektirir."
+    )
+
+
+async def privacy_gate(update, context):
+    """Show privacy choice once before any text transcript or normal bot action.
+
+    Both choices allow full ordinary functionality. Existing users see the new
+    notice once. Unacknowledged text is not logged, not even in the pending update.
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+    if user is None or chat is None or chat.type != "private" or user.is_bot:
+        return
+    callback = update.callback_query
+    data = callback.data if callback else ""
+    if isinstance(data, str) and data in ("privacy:accept", "privacy:decline"):
+        try:
+            db = await asyncio.to_thread(store)
+            if db is None:
+                await callback.answer("Veritabanı şu an kullanılamıyor.", show_alert=True)
+                raise ApplicationHandlerStop
+            await asyncio.to_thread(db.seen, user.id, user.username, user.first_name)
+            enabled = data == "privacy:accept"
+            await asyncio.to_thread(db.acknowledge_privacy, user.id, enabled)
+        except ApplicationHandlerStop:
+            raise
+        except Exception:
+            LOG.warning("Privacy acknowledgement could not be saved")
+            await callback.answer("Kaydedilemedi, sonra tekrar dene.", show_alert=True)
+            raise ApplicationHandlerStop
+        await callback.answer("Tercihin kaydedildi.")
+        await callback.edit_message_text(
+            ("✅ Kayıtlı kullanım etkin. " if enabled else "🔒 Kayıtsız kullanım etkin. ")
+            + "Botu kullanmaya başlamak için /start yaz. "
+            "Gizlilik tercihin /gizlilik ile değiştirilebilir."
+        )
+        raise ApplicationHandlerStop
+
+    text = update.message.text.strip() if update.message and update.message.text else ""
+    command = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
+    free_commands = {"/gizlilik", "/kayit_sil", "/kayit_kapat",
+                     "/duyuru_kapat", "/whoami"}
+    if command in free_commands or (command.startswith("/admin") and is_owner(update)):
+        return
+    try:
+        db = await asyncio.to_thread(store)
+        if db is None:
+            raise RuntimeError("Database unavailable")
+        await asyncio.to_thread(db.seen, user.id, user.username, user.first_name)
+        version, _ = await asyncio.to_thread(db.privacy_status, user.id)
+        if version >= PRIVACY_NOTICE_VERSION:
+            return
+    except Exception:
+        LOG.warning("Privacy gate database unavailable")
+        if callback:
+            await callback.answer("Gizlilik ayarları yüklenemedi.", show_alert=True)
+        else:
+            await update.effective_message.reply_text(
+                "⚠️ Güvenli oturum başlatılamadı; biraz sonra tekrar dene."
+            )
+        raise ApplicationHandlerStop
+
+    if callback:
+        await callback.answer("Önce gizlilik tercihini seç.", show_alert=True)
+    await update.effective_message.reply_text(privacy_notice(), reply_markup=privacy_keyboard())
+    raise ApplicationHandlerStop
 
 
 async def observe(update, context) -> None:
@@ -80,18 +173,7 @@ async def privacy_commands(update, context) -> None:
     command = update.message.text.split()[0].split("@")[0].lower()
     user_id = update.effective_user.id
     if command == "/gizlilik":
-        await update.message.reply_text(
-            "🔐 Karamaz Akademi Gizlilik\n\n"
-            "Bot, güvenlik ve kullanıcı yönetimi için Telegram ID, kullanıcı adı "
-            "ve son etkinlik tarihini saklar. Bot sahibi bu temel listeyi görür.\n"
-            "Sohbet metinlerin varsayılan olarak KAYDEDİLMEZ. /kayit_ac "
-            "komutuyla açıkça izin verirsen daha sonraki metin mesajların ve "
-            "AI yanıtları en fazla 30 gün saklanır ve yalnızca bot sahibi "
-            "tarafından incelenebilir. Önceki mesajlar geriye dönük alınamaz.\n"
-            "/kayit_kapat kayıt almayı durdurur, /kayit_sil mevcut kayıtları siler.\n"
-            "Duyurular ayrıca /duyuru_ac ile açılır, /duyuru_kapat ile kapatılır.\n"
-            "Haber özetleri /ozet_ac iznine bağlıdır. Üç izin birbirinden ayrıdır."
-        )
+        await update.message.reply_text(privacy_notice(), reply_markup=privacy_keyboard())
         return
     db = await asyncio.to_thread(store)
     if db is None:
@@ -101,11 +183,10 @@ async def privacy_commands(update, context) -> None:
         db.seen, user_id, update.effective_user.username, update.effective_user.first_name
     )
     if command == "/kayit_ac":
-        await asyncio.to_thread(db.set_consent, user_id, "transcript_enabled", True)
+        # Legacy command remains compatible, but the public menu offers buttons.
+        await asyncio.to_thread(db.acknowledge_privacy, user_id, True)
         await update.message.reply_text(
-            "✅ Bu andan itibaren metin sohbetlerinin en fazla 30 gün "
-            "saklanmasına ve bot sahibi tarafından incelenmesine izin verdin. "
-            "/kayit_kapat ile durdurabilir, /kayit_sil ile silebilirsin."
+            "✅ Kayıtlı kullanım etkin. Tercihini /gizlilik üzerinden değiştirebilirsin."
         )
     elif command == "/kayit_kapat":
         # Protect prior sensitive messages as well when permission is revoked.
