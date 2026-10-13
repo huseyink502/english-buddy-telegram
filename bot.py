@@ -15,7 +15,7 @@ from telegram.error import BadRequest
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, TypeHandler, filters
 
 from ai import GeminiTeacher
-from admin_telegram import observe, note_reply, owner_commands, privacy_commands, admin_announcement_callback
+from admin_telegram import observe, note_reply, owner_commands, privacy_commands, admin_announcement_callback, privacy_gate
 from ai_fallback import generate_with_fallback, is_retryable_gemini_error
 from groq_ai import GroqNewsAssistant
 from news_memory import NewsMemory, TOPICS
@@ -86,9 +86,7 @@ BOT_COMMANDS = [
     BotCommand("next", "Bir sonraki ders günü"),
     BotCommand("help", "Yardım ve komutlar"),
     BotCommand("gizlilik", "Kullanıcı verileri ve izinler"),
-    BotCommand("kayit_ac", "Sohbet kaydına izin ver"),
-    BotCommand("kayit_kapat", "Sohbet kaydını durdur ve sil"),
-    BotCommand("kayit_sil", "Sohbet geçmişi kayıtlarını sil"),
+    BotCommand("kayit_sil", "Kaydedilmiş sohbetlerimi sil"),
     BotCommand("duyuru_ac", "Yönetici duyurularına abone ol"),
     BotCommand("duyuru_kapat", "Duyuruları kapat"),
     BotCommand("admin", "Yönetici paneli (sadece sahip)"),
@@ -137,8 +135,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🔊 Telaffuz: Bir kelimenin sesini dinle\n"
         "📰 Haberler: Türkiye, siyaset ve son dakika haberleri; Gemini'ye sor\n"
         "🎮 Oyun Gündemi: Oyunlar, Brawl Stars ve GTA 6 haberleri\n\n"
-        "🔐 Güvenlik için Telegram ID ve son etkinlik tutulur; sohbet içeriğin yalnızca "
-        "/kayit_ac izniyle saklanır. Duyuru tercihi /duyuru_ac. Ayrıntılar: /gizlilik\n\n"
+        "🔐 Sohbet kaydı tercihini ilk kullanımda seçersin. Kayıtlı veya "
+        "kayıtsız kullanabilir, tercihini /gizlilik ile değiştirebilirsin. "
+        "Duyurular için /duyuru_ac gerekir.\n\n"
         "İlk ders için 📚 Ders'e dokun. Bana doğrudan mesaj da yazabilirsin.",
         reply_markup=MENU,
     )
@@ -167,8 +166,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/ozet_kapat bildirimi kapat\n/takip kategori seç\n"
         "/gelismeler gta6 arşivi aç\n"
         "/oyun oyun dünyası\n/brawlstars Brawl Stars\n/gta6 GTA 6\n"
-        "/gizlilik veri politikası\n/kayit_ac sohbet kaydına izin ver\n"
-        "/kayit_kapat kaydı kapat ve sil\n/kayit_sil kayıtları sil\n"
+        "/gizlilik sohbet kaydı tercihi\n/kayit_sil eski kayıtları sil\n"
         "/duyuru_ac duyuruları aç\n/duyuru_kapat duyuruları kapat\n"
         "/whoami ID öğren\n/help yardım\n\n"
         "Sesli mesaj gönderirsen Gemini konuşmanı çözümleyip geri bildirim verir.",
@@ -750,6 +748,7 @@ def build_application():
         ("admin_sohbet", owner_commands), ("admin_duyuru", owner_commands),
     ]:
         app.add_handler(CommandHandler(command, handler))
+    app.add_handler(TypeHandler(Update, privacy_gate), group=-2)
     app.add_handler(TypeHandler(Update, observe), group=-1)
     app.add_handler(CallbackQueryHandler(admin_announcement_callback, pattern=r"^admin:(confirm|cancel):[0-9a-f]{12}$"))
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
