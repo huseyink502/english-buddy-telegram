@@ -236,12 +236,18 @@ duyurusu alabilir; `/duyuru_kapat` ile vazgeçer. Haber bildirimi
 `/ozet_ac` izninden tamamen ayrıdır. Kullanıcıların
 `/start` komutu kullanması, yönetici duyurusuna otomatik abone yapmaz.
 
-**Sohbet metinleri varsayılan olarak saklanmaz.** Her kullanıcı
-`/gizlilik` ile açıklamayı görür. Açıkça `/kayit_ac` yazan kullanıcıların
-bundan sonraki metin girdileri ve AI yanıtları en fazla 30 gün saklanır;
-`/kayit_kapat` veya `/kayit_sil` kaydı durdurur ve saklanmış sohbet
-metinlerini siler. Dikkat: süre aşan kayıtlar okuma ve yazma sırasında
-filtrelenir/temizlenir; tam veri silme için düzenli temizlik görevi eklenmelidir.
+**İlk kullanımda açık gizlilik tercihi zorunludur.** Yeni ve mevcut
+kullanıcılar, botu bir sonraki kullanışlarında `Kayıtlı kullan (30 gün)`
+veya `Kayıtsız devam et` butonlarından birini seçer. İkinci seçenekle de
+botun normal özellikleri çalışır; konuşmalar kayıt altına alınmaz. Kullanıcı
+`/kayit_ac` yazmak zorunda değildir. Tercihini `/gizlilik` ekranından
+değiştirebilir. `/kayit_sil` geçmiş kayıtları siler ve kayıt iznini kapatır.
+Önceki mesajlar geriye dönük alınamaz. Kayıtlı kullanmayı açıkça seçenlerin
+**bundan sonraki metin mesajları ve AI yanıtları** en fazla 30 gün saklanır;
+komutların içerikleri ve ses dosyaları kaydedilmez. Bu, kullanıcılara haber
+vermeden gizli kayıt sistemi değildir. Dikkat: süre aşan kayıtlar okuma ve
+yazma sırasında filtrelenir/temizlenir; tam veri silme için düzenli
+temizlik görevi eklenmelidir.
 Sesli mesajların ham dosyaları, Telegram erişim tokenları ve API anahtarları
 bu panelde saklanmaz. Kullanıcı ID, kullanıcı adı ve son etkinlik tarihi
 güvenlik ve yönetim amacıyla tutulur; kullanıcıya `/start` ve `/gizlilik`
