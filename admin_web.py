@@ -127,7 +127,7 @@ def page(title: str, body: str) -> HTMLResponse:
         f'<title>{safe_title} | Karamaz Akademi</title><style>{CSS}</style>'
         f'</head><body><main><h1>🛡️ Karamaz Akademi · Yönetici Paneli</h1>'
         f'{body}<footer>Yetkili yönetici alanı · Kullanıcı sohbetleri yalnızca '
-        f'açık izinle kaydedilir ve 30 gün saklanır.</footer></main></body></html>'
+        f'ilk kullanımda bildirildikten sonra en fazla 30 gün saklanır; kullanıcı kaydı kapatıp silebilir.</footer></main></body></html>'
     )
     result.headers.update({
         "Cache-Control": "no-store",
@@ -184,7 +184,7 @@ async def dashboard(request: Request):
         f'<div class="box stat"><b>{stats[key]}</b><br>{title}</div>'
         for key, title in [
             ("users", "Toplam kullanıcı"), ("active_7d", "Son 7 gün aktif"),
-            ("chat_optins", "Sohbet kaydı izni"),
+            ("chat_optins", "Sohbet kaydı açık"),
             ("announcement_optins", "Duyuru izni"),
             ("messages_30d", "30 günlük kayıt"),
         ]
@@ -198,13 +198,15 @@ async def dashboard(request: Request):
         for p in people
     )
     return page("Panel", (
-        '<p class="muted">Sohbet mesajları yalnızca kullanıcı /kayit_ac ile açıkça '
-        'izin verdiyse görünür; duyurular /duyuru_ac izni gerektirir.</p>'
+        '<p class="muted">Yeni kullanıcılara gizlilik bildirimi gönderildikten sonra '
+        'sohbet kaydı açılır. Eski kullanıcıların tercihleri korunur. '
+        'Kayıt her zaman /kayit_kapat ile kapatılabilir; '
+        'duyurular ayrıca /duyuru_ac izni gerektirir.</p>'
         '<div class="stats">' + cards + '</div>'
         '<section><h2>Kullanıcılar</h2><p>İlk 25 kullanıcı. '
         '<a href="/admin/users?offset=0">Tüm kullanıcılar</a></p>'
         '<table><thead><tr><th>Telegram ID</th><th>Ad</th><th>Son etkinlik</th>'
-        '<th>Sohbet izni</th><th>Duyuru izni</th></tr></thead><tbody>'
+        '<th>Sohbet kaydı</th><th>Duyuru izni</th></tr></thead><tbody>'
         + rows + '</tbody></table></section>'
         '<section><h2>📣 Duyuru gönder</h2>'
         '<p>Yalnızca /duyuru_ac ile bildirim izni veren kullanıcılara gider. '
@@ -258,9 +260,9 @@ async def user_messages(request: Request, user_id: int):
     records = await asyncio.to_thread(db.conversations, user_id) if person["transcript_enabled"] else []
     body = '<section><h2>Kullanıcı ' + esc(user_id) + '</h2><p>Takma ad: ' + esc(person["username"]) + '</p>'
     if not person["transcript_enabled"]:
-        body += '<p>Sohbet kaydı izni yok. Konuşma içerikleri görüntülenemez.</p>'
+        body += '<p>Sohbet kaydı kapalı. Konuşma içerikleri görüntülenemez.</p>'
     else:
-        body += '<p>Yalnızca son 30 günde izinliyken kaydedilmiş metinler:</p>'
+        body += '<p>Yalnızca son 30 günde kayıt açıkken saklanmış metinler:</p>'
         for msg in records:
             body += '<div class="box"><b>' + ("Kullanıcı" if msg["direction"] == "user" else "Bot") + '</b>'
             body += '<small> · ' + esc(msg["created_at"]) + '</small><p>'
