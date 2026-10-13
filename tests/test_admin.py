@@ -240,5 +240,116 @@ class AdminStorageTests(unittest.TestCase):
         asyncio.run(run())
 
 
+
+class AdminPrivacyNoticeTests(unittest.TestCase):
+    def test_disclosure_precedes_new_user_logging(self):
+        from admin_telegram import observe, note_reply, NEW_USER_NOTICE
+
+        async def run():
+            db = MagicMock()
+            db.notice_version.side_effect = [0, 1]
+            first = SimpleNamespace(
+                message_id=100, text="İlk gizli mesaj",
+                reply_text=AsyncMock(),
+            )
+            second = SimpleNamespace(
+                message_id=101, text="İkinci mesaj",
+                reply_text=AsyncMock(),
+            )
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(
+                    id=51, username="newbie", first_name="Yeni", is_bot=False
+                ),
+                effective_chat=SimpleNamespace(type="private"),
+                message=first,
+            )
+            ctx = SimpleNamespace(user_data={})
+            with patch("admin_telegram.store", return_value=db):
+                await observe(update, ctx)
+                first.reply_text.assert_awaited_once_with(NEW_USER_NOTICE)
+                db.mark_notice.assert_called_once_with(51)
+                db.store_text.assert_not_called()
+                await note_reply(update, "İlk yanıt", ctx)
+                db.store_text.assert_not_called()
+                update.message = second
+                await observe(update, ctx)
+                db.store_text.assert_called_once_with(51, "user", "İkinci mesaj")
+                await note_reply(update, "İkinci yanıt", ctx)
+                db.store_text.assert_any_call(51, "bot", "İkinci yanıt")
+        asyncio.run(run())
+
+    def test_legacy_user_gets_different_notice(self):
+        from admin_telegram import observe, LEGACY_USER_NOTICE
+
+        async def run():
+            db = MagicMock()
+            db.notice_version.return_value = -1
+            msg = SimpleNamespace(
+                message_id=5, text="Eski kullanıcı",
+                reply_text=AsyncMock(),
+            )
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(
+                    id=9, username="old", first_name="Eski", is_bot=False
+                ),
+                effective_chat=SimpleNamespace(type="private"),
+                message=msg,
+            )
+            with patch("admin_telegram.store", return_value=db):
+                await observe(update, SimpleNamespace(user_data={}))
+            msg.reply_text.assert_awaited_once_with(LEGACY_USER_NOTICE)
+            db.store_text.assert_not_called()
+        asyncio.run(run())
+
+    def test_failed_disclosure_does_not_activate_logging(self):
+        from admin_telegram import observe
+
+        async def run():
+            db = MagicMock()
+            db.notice_version.return_value = 0
+            msg = SimpleNamespace(
+                message_id=7, text="Test",
+                reply_text=AsyncMock(side_effect=RuntimeError("no delivery")),
+            )
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(
+                    id=11, username="demo", first_name="Demo", is_bot=False
+                ),
+                effective_chat=SimpleNamespace(type="private"),
+                message=msg,
+            )
+            with patch("admin_telegram.store", return_value=db):
+                await observe(update, SimpleNamespace(user_data={}))
+            db.mark_notice.assert_not_called()
+            db.store_text.assert_not_called()
+        asyncio.run(run())
+
+    def test_migration_preserves_existing_users_preference(self):
+        db = AdminStore("placeholder-connection-string")
+        con = MagicMock()
+        con.__enter__.return_value = con
+        with patch.object(db, "_connect", return_value=con):
+            db.setup()
+            db.mark_notice(88)
+            db.delete_transcripts(88)
+        sql = [c.args[0] for c in con.execute.call_args_list]
+        # -1 for existing rows, 0 as default for future sign-ups.
+        self.assertTrue(any("privacy_notice_version" in x and "DEFAULT -1" in x for x in sql))
+        self.assertTrue(any("privacy_notice_version SET DEFAULT 0" in x for x in sql))
+        self.assertTrue(any("CASE WHEN privacy_notice_version=0" in x for x in sql))
+        self.assertTrue(any(
+            "transcript_enabled=FALSE, privacy_notice_version=1" in x
+            for x in sql
+        ))
+
+    def test_admin_menu_does_not_require_record_on_command(self):
+        from bot import BOT_COMMANDS
+        names = [cmd.command for cmd in BOT_COMMANDS]
+        self.assertNotIn("kayit_ac", names)
+        self.assertIn("kayit_kapat", names)
+        self.assertIn("kayit_sil", names)
+        self.assertIn("gizlilik", names)
+
+
 if __name__ == "__main__":
     unittest.main()
