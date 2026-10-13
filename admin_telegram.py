@@ -33,6 +33,15 @@ def owner_id() -> int:
         return 0
 
 
+def bot_access_allowed(user_id: int) -> bool:
+    """Skip owner-only bot restrictions before collecting any user metadata."""
+    try:
+        permitted = int(os.getenv("ALLOWED_USER_ID", "0") or "0")
+    except ValueError:
+        return False
+    return not permitted or user_id == permitted
+
+
 def is_owner(update) -> bool:
     uid = owner_id()
     return (
@@ -79,6 +88,8 @@ async def privacy_gate(update, context):
     user = update.effective_user
     chat = update.effective_chat
     if user is None or chat is None or chat.type != "private" or user.is_bot:
+        return
+    if not bot_access_allowed(user.id):
         return
     callback = update.callback_query
     data = callback.data if callback else ""
@@ -140,6 +151,8 @@ async def observe(update, context) -> None:
     user = update.effective_user
     chat = update.effective_chat
     if user is None or chat is None or chat.type != "private" or user.is_bot:
+        return
+    if not bot_access_allowed(user.id):
         return
     try:
         db = await asyncio.to_thread(store)
