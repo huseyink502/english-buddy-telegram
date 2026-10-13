@@ -4,6 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from telegram.ext import ApplicationHandlerStop
+
 from admin_store import AdminStore
 from admin_telegram import observe, privacy_callback
 from bot import BOT_COMMANDS
@@ -27,7 +29,8 @@ class TranscriptPolicyTests(unittest.TestCase):
             db = MagicMock()
             db.notice_status.return_value = (True, False, False)
             with patch("admin_telegram.store", return_value=db):
-                await observe(update, SimpleNamespace())
+                with self.assertRaises(ApplicationHandlerStop):
+                    await observe(update, SimpleNamespace())
             update.message.reply_text.assert_awaited_once()
             text = update.message.reply_text.call_args.args[0]
             self.assertIn("bot sahibi", text)
@@ -42,7 +45,8 @@ class TranscriptPolicyTests(unittest.TestCase):
             db = MagicMock()
             db.notice_status.return_value = (True, True, False)
             with patch("admin_telegram.store", return_value=db):
-                await observe(update, SimpleNamespace())
+                with self.assertRaises(ApplicationHandlerStop):
+                    await observe(update, SimpleNamespace())
             text = update.message.reply_text.call_args.args[0]
             self.assertIn("önceki gizlilik tercihin korunuyor", text.lower())
             db.store_text.assert_not_called()

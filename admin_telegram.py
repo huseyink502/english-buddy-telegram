@@ -9,6 +9,7 @@ import time
 from functools import lru_cache
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationHandlerStop
 
 from admin_store import AdminStore, send_announcement
 
@@ -30,6 +31,15 @@ def owner_id() -> int:
         return int(os.getenv("ADMIN_USER_ID", "0") or 0)
     except ValueError:
         return 0
+
+
+def bot_access_allowed(user_id: int) -> bool:
+    """Do not process or store private metadata for excluded users."""
+    try:
+        allowed_id = int(os.getenv("ALLOWED_USER_ID", "0") or "0")
+    except ValueError:
+        return False
+    return not allowed_id or user_id == allowed_id
 
 
 def is_owner(update) -> bool:
@@ -61,6 +71,8 @@ async def observe(update, context) -> None:
     chat = update.effective_chat
     if user is None or chat is None or chat.type != "private" or user.is_bot:
         return
+    if not bot_access_allowed(user.id):
+        return
     try:
         db = await asyncio.to_thread(store)
         if db is None:
@@ -81,11 +93,15 @@ async def observe(update, context) -> None:
             # Nothing is recorded until Telegram has accepted this notice.
             await message.reply_text(NOTICE_COMMON + additional)
             await asyncio.to_thread(db.mark_notified, user.id)
-            return
+            # Never process the triggering message or archive an AI response
+            # before the user has had a chance to read the notice.
+            raise ApplicationHandlerStop
         incoming = update.message
         # Never archive slash commands, which may carry credentials or arguments.
         if incoming and incoming.text and not incoming.text.lstrip().startswith("/"):
             await asyncio.to_thread(db.store_text, user.id, "user", incoming.text)
+    except ApplicationHandlerStop:
+        raise
     except Exception:
         LOG.warning("Admin privacy notice or optional transcript storage unavailable")
 
@@ -131,6 +147,9 @@ async def privacy_summary(db: AdminStore, user_id: int) -> tuple[str, InlineKeyb
 async def privacy_commands(update, context) -> None:
     if update.effective_chat.type != "private":
         return
+    if not bot_access_allowed(update.effective_user.id):
+        await update.message.reply_text("Bu bot özel kullanım içindir.")
+        return
     command = update.message.text.split()[0].split("@")[0].lower()
     user_id = update.effective_user.id
     db = await asyncio.to_thread(store)
@@ -168,6 +187,9 @@ async def privacy_callback(update, context) -> None:
     query = update.callback_query
     if update.effective_chat is None or update.effective_chat.type != "private":
         await query.answer("Yalnızca özel sohbette.", show_alert=True)
+        return
+    if not bot_access_allowed(update.effective_user.id):
+        await query.answer("Erişim yok.", show_alert=True)
         return
     db = await asyncio.to_thread(store)
     if db is None:
