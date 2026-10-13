@@ -95,7 +95,7 @@ small{color:#a8b9d4;display:block;margin-top:24px}
 Panelin giriş bilgileri yalnızca Render üzerinden tanımlanır.</p>
 <a class="action" href="/admin">🛡️ Yönetici panelini aç →</a>
 <small>Yönetim paneline giriş için yetkili hesap ve parola gerekir.
-Bot kullanıcılarının özel konuşmaları izin olmadan kaydedilmez.</small>
+Sohbet kayıt politikası ilk kullanımda bildirilir; kayıt kapatılabilir ve silinebilir.</small>
 </main></body></html>""")
     response.headers.update({
         "Cache-Control": "public, max-age=60",
