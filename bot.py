@@ -86,9 +86,8 @@ BOT_COMMANDS = [
     BotCommand("next", "Bir sonraki ders günü"),
     BotCommand("help", "Yardım ve komutlar"),
     BotCommand("gizlilik", "Kullanıcı verileri ve izinler"),
-    BotCommand("kayit_ac", "Sohbet kaydına izin ver"),
-    BotCommand("kayit_kapat", "Sohbet kaydını durdur ve sil"),
-    BotCommand("kayit_sil", "Sohbet geçmişi kayıtlarını sil"),
+    BotCommand("kayit_kapat", "Sohbet kaydını kapat ve sil"),
+    BotCommand("kayit_sil", "Sohbet kayıtlarını sil"),
     BotCommand("duyuru_ac", "Yönetici duyurularına abone ol"),
     BotCommand("duyuru_kapat", "Duyuruları kapat"),
     BotCommand("admin", "Yönetici paneli (sadece sahip)"),
@@ -137,8 +136,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🔊 Telaffuz: Bir kelimenin sesini dinle\n"
         "📰 Haberler: Türkiye, siyaset ve son dakika haberleri; Gemini'ye sor\n"
         "🎮 Oyun Gündemi: Oyunlar, Brawl Stars ve GTA 6 haberleri\n\n"
-        "🔐 Güvenlik için Telegram ID ve son etkinlik tutulur; sohbet içeriğin yalnızca "
-        "/kayit_ac izniyle saklanır. Duyuru tercihi /duyuru_ac. Ayrıntılar: /gizlilik\n\n"
+        "🔐 Gizlilik: Sohbet kayıt politikası ilk kullanımda bildirilir. "
+        "Bildirimden sonraki metin konuşmaların bot sahibi tarafından en fazla "
+        "30 gün görüntülenebilir. Kaydı /kayit_kapat ile kapatabilir, "
+        "/kayit_sil ile silebilirsin. Ayrıntılar: /gizlilik\n\n"
         "İlk ders için 📚 Ders'e dokun. Bana doğrudan mesaj da yazabilirsin.",
         reply_markup=MENU,
     )
@@ -167,8 +168,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/ozet_kapat bildirimi kapat\n/takip kategori seç\n"
         "/gelismeler gta6 arşivi aç\n"
         "/oyun oyun dünyası\n/brawlstars Brawl Stars\n/gta6 GTA 6\n"
-        "/gizlilik veri politikası\n/kayit_ac sohbet kaydına izin ver\n"
+        "/gizlilik veri politikası\n"
         "/kayit_kapat kaydı kapat ve sil\n/kayit_sil kayıtları sil\n"
+        "/kayit_ac kaydı tekrar aç\n"
         "/duyuru_ac duyuruları aç\n/duyuru_kapat duyuruları kapat\n"
         "/whoami ID öğren\n/help yardım\n\n"
         "Sesli mesaj gönderirsen Gemini konuşmanı çözümleyip geri bildirim verir.",
@@ -444,7 +446,7 @@ async def ask_news_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, questi
         return
     history.extend([("user", question), ("model", answer)])
     context.user_data["news_history"] = history[-6:]
-    await note_reply(update, answer)
+    await note_reply(update, answer, context)
     for offset in range(0, len(answer), 3900):
         await update.message.reply_text(answer[offset:offset + 3900])
 
@@ -637,7 +639,7 @@ async def ask_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, message: st
         answer = "↪️ Gemini yoğun olduğu için bu yanıt Groq üzerinden oluşturuldu.\n\n" + answer
     history.extend([("user", message), ("model", answer)])
     context.user_data["chat_history"] = history[-10:]
-    await note_reply(update, answer)
+    await note_reply(update, answer, context)
     # Telegram messages are limited in size. Split long responses safely.
     for chunk_start in range(0, len(answer), 3900):
         await update.message.reply_text(answer[chunk_start:chunk_start + 3900])
