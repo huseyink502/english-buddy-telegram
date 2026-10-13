@@ -196,6 +196,8 @@ async def dashboard(request: Request):
         for p in people
     )
     return page("Panel", (
+        '<p class="muted">Sohbet mesajları yalnızca kullanıcı /kayit_ac ile açıkça '
+        'izin verdiyse görünür; duyurular /duyuru_ac izni gerektirir.</p>'
         '<div class="stats">' + cards + '</div>'
         '<section><h2>Kullanıcılar</h2><p>İlk 25 kullanıcı. '
         '<a href="/admin/users?offset=0">Tüm kullanıcılar</a></p>'
@@ -209,6 +211,9 @@ async def dashboard(request: Request):
         '<input type="hidden" name="csrf" value="' + token + '">'
         '<textarea name="message" maxlength="1500" rows="5" required '
         'placeholder="Duyuru metnini yaz..."></textarea>'
+        '<p><label><input type="checkbox" name="confirm" value="yes" required '
+        'style="width:auto;display:inline-block"> İzinli alıcılara göndermeyi '
+        'onaylıyorum.</label></p>'
         '<button type="submit">Duyuruyu gönder</button></form></section>'
         '<form method="post" action="/admin/logout">'
         '<input type="hidden" name="csrf" value="' + token + '">'
@@ -300,6 +305,8 @@ async def announce(request: Request):
     message = form.get("message", "").strip()
     if not message or len(message) > 1500:
         raise HTTPException(400, "Message must be 1-1500 characters")
+    if form.get("confirm") != "yes":
+        raise HTTPException(400, "Duyuru için gönderim onayı gerekli")
     db = await __import__("asyncio").to_thread(storage)
     bot = request.app.state.telegram_application.bot
     try:
