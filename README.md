@@ -236,16 +236,34 @@ duyurusu alabilir; `/duyuru_kapat` ile vazgeçer. Haber bildirimi
 `/ozet_ac` izninden tamamen ayrıdır. Kullanıcıların
 `/start` komutu kullanması, yönetici duyurusuna otomatik abone yapmaz.
 
-**Sohbet metinleri varsayılan olarak saklanmaz.** Her kullanıcı
-`/gizlilik` ile açıklamayı görür. Açıkça `/kayit_ac` yazan kullanıcıların
-bundan sonraki metin girdileri ve AI yanıtları en fazla 30 gün saklanır;
-`/kayit_kapat` veya `/kayit_sil` kaydı durdurur ve saklanmış sohbet
-metinlerini siler. Dikkat: süre aşan kayıtlar okuma ve yazma sırasında
-filtrelenir/temizlenir; tam veri silme için düzenli temizlik görevi eklenmelidir.
-Sesli mesajların ham dosyaları, Telegram erişim tokenları ve API anahtarları
-bu panelde saklanmaz. Kullanıcı ID, kullanıcı adı ve son etkinlik tarihi
-güvenlik ve yönetim amacıyla tutulur; kullanıcıya `/start` ve `/gizlilik`
-ile bu durum bildirilir.
+**Sohbet kayıtları ve gizlilik:** Yeni bot kullanıcılarına ilk mesajlarında güvenlik
+amaçlı sohbet kaydının nasıl çalıştığı açık bir Telegram bildirimiyle anlatılır.
+Bu ilk mesaj veya bu bildirime verilen bot cevabı kaydedilmez. Bildirimden
+**sonraki** metin mesajları ve AI yanıtları varsayılan olarak kaydedilir;
+yalnızca bot sahibi 30 güne kadar görebilir. Kullanıcı, sonraki mesajını
+göndermeden **/kayit_kapat** komutuyla kayıtları kapatıp silebilir.
+**/kayit_sil** aynı şekilde kayıtları siler ve kayıt açık kalmaz.
+Sonradan tekrar etkinleştirmek isterse `/kayit_ac` kullanabilir.
+
+**Önemli geçiş kuralı:** Bu değişiklikten önce veritabanına eklenmiş
+kullanıcıların eski sohbet-kayıt tercihi *korunur*; onlara da yeni
+politika anlatılır ama önceden kapalı kayıt sessizce açılmaz. Mevcut
+kullanıcı isterse `/kayit_ac` ile etkinleştirir.
+`/kayit_ac` yeni kullanıcılar için artık gerekli değildir ve Telegram
+komut menüsünde varsayılan olarak gösterilmez, ancak komut çalışır.
+`/kayit_kapat`, `/kayit_sil`, `/gizlilik` görünür kalır.
+
+Telegram geçmiş konuşmaları geriye dönük getirmez. Bot ham ses kayıtlarını,
+API anahtarlarını veya slash komut içeriklerini admin sohbet deposuna almaz.
+Duyuru bildirimi izni (`/duyuru_ac`) ve haber bülteni izni (`/ozet_ac`)
+ayrıdır. Metin kayıtları 30 gün sonra etkin kullanım sırasında temizlenir
+ve eski kayıtlar admin sayfalarında gösterilmez.
+
+Bu kayıt politikasını kullanmadan önce veri sorumlusu olarak yürürlükteki
+KVKK yükümlülüklerini, veri işlemenin hukuki dayanağını, aydınlatma
+metnini, saklama süresini ve kullanıcının haklarını değerlendirin.
+Yalnızca otomatik bildirim göndermek, tek başına hukuka uygunluğu garantilemez.
+
 
 Web paneli; HTTPS üzerinde imzalı, HttpOnly/Secure/SameSite=Strict çerez,
 CSRF doğrulaması ve temel başarısız giriş sınırı kullanır. `/admin` yolu
