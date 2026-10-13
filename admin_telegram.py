@@ -87,7 +87,7 @@ async def observe(update, context) -> None:
             # user update will trigger a new disclosure attempt.
             await incoming.reply_text(notice)
             await asyncio.to_thread(db.mark_notice, user.id)
-            context.user_data["admin_skip_reply_once"] = True
+            context.user_data["admin_skip_reply_message_id"] = incoming.message_id
             # The message that triggered disclosure must not be captured.
             return
 
@@ -103,8 +103,10 @@ async def note_reply(update, answer: str, context=None) -> None:
     user = update.effective_user
     if not user:
         return
-    if context is not None and context.user_data.pop("admin_skip_reply_once", False):
-        return
+    if context is not None:
+        first_id = context.user_data.pop("admin_skip_reply_message_id", None)
+        if first_id is not None and update.message and first_id == update.message.message_id:
+            return
     try:
         db = await asyncio.to_thread(store)
         if db is not None:
