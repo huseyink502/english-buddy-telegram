@@ -45,7 +45,8 @@ footer{margin-top:25px;color:#a8b9d4}
 
 
 def config_ok() -> bool:
-    return bool(os.getenv("DATABASE_URL")) and (
+    # Deliberately off until the service owner explicitly enables the panel.
+    return os.getenv("ADMIN_PANEL_ENABLED", "").strip().lower() in ("1", "true", "yes") and bool(os.getenv("DATABASE_URL")) and (
         os.getenv("ADMIN_USER_ID", "").strip().isdigit()
         and int(os.getenv("ADMIN_USER_ID", "0")) > 0
         and len(os.getenv("ADMIN_WEB_PASSWORD", "")) >= 20
@@ -160,8 +161,9 @@ def protected(request: Request):
     if not config_ok():
         return page("Kurulum gerekli", (
             "<section><h2>Panel henüz etkin değil</h2>"
-            "<p>Render Environment bölümüne ADMIN_USER_ID ve en az "
-            "20 karakterlik ADMIN_WEB_PASSWORD ekleyin.</p></section>"
+            "<p>Render Environment bölümüne ADMIN_USER_ID (Telegram sahibi ID), "
+            "en az 20 karakterlik ADMIN_WEB_PASSWORD ve "
+            "ADMIN_PANEL_ENABLED=true değişkenlerini ekleyin.</p></section>"
         ))
     if not is_admin(request):
         return login_page()
