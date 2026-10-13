@@ -36,6 +36,7 @@ class AdminAuthTests(unittest.TestCase):
         environ = {
             "DATABASE_URL": "fake", "ADMIN_USER_ID": "42",
             "ADMIN_WEB_PASSWORD": "this-is-a-strong-test-password-123456",
+            "ADMIN_PANEL_ENABLED": "true",
         }
         with patch.dict(os.environ, environ):
             signed = admin_web.signed_session()
@@ -70,6 +71,7 @@ class AdminWebTests(unittest.TestCase):
             creds = {
                 "ADMIN_USER_ID": "42", "DATABASE_URL": "fake",
                 "ADMIN_WEB_PASSWORD": "not-a-real-secret-but-over-twenty-characters",
+                "ADMIN_PANEL_ENABLED": "true",
             }
             with patch.dict(os.environ, creds), patch.object(admin_web, "storage", return_value=db), patch("asyncio.sleep", new_callable=AsyncMock):
                 transport = ASGITransport(app=app)
@@ -117,7 +119,7 @@ class AdminWebTests(unittest.TestCase):
 
     def test_web_is_disabled_when_not_configured(self):
         async def run():
-            with patch.dict(os.environ, {"ADMIN_USER_ID": "0", "ADMIN_WEB_PASSWORD": ""}):
+            with patch.dict(os.environ, {"ADMIN_USER_ID": "0", "ADMIN_WEB_PASSWORD": "", "ADMIN_PANEL_ENABLED": "false"}):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="https://testserver") as client:
                     response = await client.get("/admin")
                     self.assertIn("Panel henüz etkin değil", response.text)
