@@ -61,6 +61,20 @@ class PrivacyGateTests(unittest.TestCase):
             update.message.reply_text.assert_not_awaited()
         asyncio.run(run())
 
+    def test_restricted_bot_never_tracks_unauthorized_user(self):
+        async def run():
+            update = text_update("Bu kullanıcı yetkisiz")
+            db = MagicMock()
+            with patch.dict(__import__("os").environ, {"ALLOWED_USER_ID": "9001"}), patch(
+                "admin_telegram.store", return_value=db
+            ):
+                await privacy_gate(update, SimpleNamespace())
+                await observe(update, SimpleNamespace())
+            db.seen.assert_not_called()
+            db.store_text.assert_not_called()
+            update.message.reply_text.assert_not_awaited()
+        asyncio.run(run())
+
     def test_privacy_and_delete_commands_always_accessible(self):
         async def run():
             db = MagicMock()
