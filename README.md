@@ -223,6 +223,8 @@ Render → Environment bölümüne aşağıdaki iki değişkeni ekleyin:
 - `ADMIN_USER_ID`: Telegram'da `/whoami` komutundan öğrendiğiniz **kendi sayısal ID'niz**; `ALLOWED_USER_ID` ile karıştırmayın. `ADMIN_USER_ID=0` iken Telegram'daki admin komutları kapalıdır.
 - `ADMIN_WEB_PASSWORD`: En az **20 karakterlik, benzersiz ve güçlü** parola. Telegram mesajı veya kod dosyasında paylaşmayın. Parolayı bir parola yöneticisi ile üretmek önerilir.
 
+`ADMIN_PANEL_ENABLED=true` değişkeni panelin ayrıca etkinleştirilmesini sağlar. False veya eksikse web admin sayfası kapalı kalır.
+
 Mevcut `DATABASE_URL` Neon bağlantısı kullanılacaktır; ikinci bir veritabanı gerekmez.
 Ayarları kaydedip Render dağıtımı tamamlanınca:
 - Web paneli: `https://english-buddy-telegram.onrender.com/admin`
