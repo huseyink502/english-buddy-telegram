@@ -31,8 +31,20 @@ class AdminStore:
                     joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     transcript_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                    announcements_enabled BOOLEAN NOT NULL DEFAULT FALSE
+                    announcements_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    -- Existing users are "legacy"; their current transcript choice is preserved.
+                    legacy_record BOOLEAN NOT NULL DEFAULT TRUE,
+                    notice_shown_at TIMESTAMPTZ
                 )
+            """)
+            # Non-destructive migration; existing rows default to legacy=true.
+            con.execute("""
+                ALTER TABLE admin_users
+                ADD COLUMN IF NOT EXISTS legacy_record BOOLEAN NOT NULL DEFAULT TRUE
+            """)
+            con.execute("""
+                ALTER TABLE admin_users
+                ADD COLUMN IF NOT EXISTS notice_shown_at TIMESTAMPTZ
             """)
             con.execute("""
                 CREATE TABLE IF NOT EXISTS admin_chat_messages (
@@ -78,14 +90,41 @@ class AdminStore:
         """Store basic bot membership metadata; never record message text here."""
         with self._connect() as con:
             con.execute("""
-                INSERT INTO admin_users (user_id, username, first_name)
-                VALUES (%s, %s, %s)
+                INSERT INTO admin_users (user_id, username, first_name, legacy_record)
+                VALUES (%s, %s, %s, FALSE)
                 ON CONFLICT (user_id) DO UPDATE SET
                     username=EXCLUDED.username,
                     first_name=EXCLUDED.first_name,
                     last_seen_at=NOW()
             """, (user_id, (username or "")[:80], (first_name or "")[:100]))
         self.purge_if_due()
+
+    def notice_status(self, user_id: int) -> tuple[bool, bool, bool]:
+        """(needs_notice, is_legacy, logging_enabled); no text is saved here."""
+        with self._connect() as con:
+            row = con.execute("""
+                SELECT notice_shown_at, legacy_record, transcript_enabled
+                FROM admin_users WHERE user_id=%s
+            """, (user_id,)).fetchone()
+        if row is None:
+            return True, True, False
+        return row[0] is None, bool(row[1]), bool(row[2])
+
+    def mark_notified(self, user_id: int) -> None:
+        """Only turn on default logging for new users *after* notice was sent.
+
+        Previously known users retain whichever privacy setting they had.
+        """
+        with self._connect() as con:
+            con.execute("""
+                UPDATE admin_users
+                SET notice_shown_at=NOW(),
+                    transcript_enabled=CASE
+                        WHEN legacy_record=FALSE THEN TRUE
+                        ELSE transcript_enabled
+                    END
+                WHERE user_id=%s AND notice_shown_at IS NULL
+            """, (user_id,))
 
     def set_consent(self, user_id: int, column: str, enabled: bool):
         if column not in ("transcript_enabled", "announcements_enabled"):
