@@ -117,6 +117,20 @@ class AdminWebTests(unittest.TestCase):
                     self.assertEqual(bot.send_message.await_args.kwargs["chat_id"], 42)
         asyncio.run(run())
 
+    def test_homepage_links_admin_without_exposing_private_data(self):
+        async def run():
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="https://testserver"
+            ) as client:
+                response = await client.get("/")
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("Karamaz Akademi", response.text)
+                self.assertIn('href="/admin"', response.text)
+                self.assertNotIn("ADMIN_WEB_PASSWORD", response.text)
+                self.assertNotIn("Telegram ID", response.text)
+                self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+        asyncio.run(run())
+
     def test_web_is_disabled_when_not_configured(self):
         async def run():
             with patch.dict(os.environ, {"ADMIN_USER_ID": "0", "ADMIN_WEB_PASSWORD": "", "ADMIN_PANEL_ENABLED": "false"}):
