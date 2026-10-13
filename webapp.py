@@ -10,6 +10,7 @@ import logging
 import os
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse
 from telegram import Update
 
 import bot as english_bot
@@ -65,6 +66,46 @@ async def lifespan(server: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(admin_router)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    """Simple public landing page, not a public entry to protected data."""
+    response = HTMLResponse("""<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Karamaz Akademi | Bot ve Yönetim</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;
+background:#0b1220;color:#edf2fb;font:16px system-ui,-apple-system,sans-serif;
+padding:24px}
+main{width:min(100%,560px);padding:34px;border:1px solid #2b405a;
+border-radius:18px;background:#152136;box-shadow:0 12px 34px #060b1533}
+h1{margin:0 0 8px;font-size:1.75rem}
+p{color:#b5c5dd;line-height:1.65}
+a.action{display:inline-block;padding:12px 20px;border-radius:10px;
+background:#397ff2;color:white;text-decoration:none;font-weight:700;
+margin:12px 0 4px}
+small{color:#a8b9d4;display:block;margin-top:24px}
+</style></head><body><main>
+<h1>🎓 Karamaz Akademi</h1>
+<p>İngilizce çalışmaları, yapay zekâ ve haber takibi için Telegram botu.</p>
+<p>Bot yöneticisiysen özel yönetim paneline aşağıdan ulaşabilirsin.
+Panelin giriş bilgileri yalnızca Render üzerinden tanımlanır.</p>
+<a class="action" href="/admin">🛡️ Yönetici panelini aç →</a>
+<small>Yönetim paneline giriş için yetkili hesap ve parola gerekir.
+Bot kullanıcılarının özel konuşmaları izin olmadan kaydedilmez.</small>
+</main></body></html>""")
+    response.headers.update({
+        "Cache-Control": "public, max-age=60",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy":
+            "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'",
+    })
+    return response
 
 
 @app.get("/health")
