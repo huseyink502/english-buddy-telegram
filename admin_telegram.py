@@ -1,4 +1,4 @@
-"""Private Telegram owner commands and explicitly consented message logging."""
+"""Private Telegram owner commands and transparent, user-controlled message logging."""
 from __future__ import annotations
 
 import asyncio
@@ -42,8 +42,21 @@ def is_owner(update) -> bool:
     )
 
 
+NOTICE_COMMON = (
+    "🔐 Karamaz Akademi · Gizlilik bildirimi\n\n"
+    "Bot, güvenlik ve destek için Telegram ID'ni, kullanıcı adını ve son etkinlik "
+    "tarihini saklar. Botla bundan sonra yapacağın metin sohbetleri ve AI yanıtları "
+    "en fazla 30 gün saklanabilir ve yalnızca bot sahibi tarafından incelenebilir. "
+    "Ses dosyaları ve API anahtarları bu kayıt sistemine alınmaz. "
+    "Geçmiş mesajlar geriye dönük alınamaz.\n\n"
+    "Kayıt durumunu görüp kaydı durdurmak veya kayıtlarını silmek için "
+    "/gizlilik yazabilirsin. Duyurular ve günlük haber özetleri ayrı izin gerektirir. "
+    "Özel şifre veya hassas bilgi paylaşma."
+)
+
+
 async def observe(update, context) -> None:
-    """Minimal per-user roster; save messages only if user opted in."""
+    """Explain default logging BEFORE new users' chat text can be persisted."""
     user = update.effective_user
     chat = update.effective_chat
     if user is None or chat is None or chat.type != "private" or user.is_bot:
@@ -53,16 +66,32 @@ async def observe(update, context) -> None:
         if db is None:
             return
         await asyncio.to_thread(db.seen, user.id, user.username, user.first_name)
+        needs_notice, is_legacy, was_enabled = await asyncio.to_thread(
+            db.notice_status, user.id
+        )
+        if needs_notice:
+            message = update.effective_message
+            if message is None:
+                return
+            additional = (
+                "\n\nDaha önceki gizlilik tercihin korunuyor: kayıt şu anda kapalı. "
+                "/gizlilik içinden istersen açabilirsin."
+                if is_legacy and not was_enabled else ""
+            )
+            # Nothing is recorded until Telegram has accepted this notice.
+            await message.reply_text(NOTICE_COMMON + additional)
+            await asyncio.to_thread(db.mark_notified, user.id)
+            return
         incoming = update.message
-        # Slash commands contain potential secrets: never log them.
+        # Never archive slash commands, which may carry credentials or arguments.
         if incoming and incoming.text and not incoming.text.lstrip().startswith("/"):
             await asyncio.to_thread(db.store_text, user.id, "user", incoming.text)
     except Exception:
-        LOG.warning("Optional admin telemetry unavailable")
+        LOG.warning("Admin privacy notice or optional transcript storage unavailable")
 
 
 async def note_reply(update, answer: str) -> None:
-    """Log AI response only for users who explicitly opted in."""
+    """Save AI response only when logging is enabled for that user."""
     user = update.effective_user
     if not user:
         return
