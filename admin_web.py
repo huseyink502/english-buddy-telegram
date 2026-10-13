@@ -119,12 +119,14 @@ async def values(request: Request) -> dict:
         raise HTTPException(400, "Invalid form")
 
 
-def page(title: str, body: str) -> HTMLResponse:
+def page(title: str, body: str, refresh_seconds: int | None = None) -> HTMLResponse:
     safe_title = html.escape(title)
     result = HTMLResponse(
         f'<!doctype html><html lang="tr"><head><meta charset="utf-8">'
         f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f'<title>{safe_title} | Karamaz Akademi</title><style>{CSS}</style>'
+        + (f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">'
+           if refresh_seconds else '')
+        + f'<title>{safe_title} | Karamaz Akademi</title><style>{CSS}</style>'
         f'</head><body><main><h1>🛡️ Karamaz Akademi · Yönetici Paneli</h1>'
         f'{body}<footer>Yetkili yönetici alanı · Kullanıcı sohbetleri yalnızca '
         f'ilk kullanımda bildirildikten sonra en fazla 30 gün saklanır; kullanıcı kaydı kapatıp silebilir.</footer></main></body></html>'
@@ -267,7 +269,8 @@ async def user_messages(request: Request, user_id: int):
             body += '<div class="box"><b>' + ("Kullanıcı" if msg["direction"] == "user" else "Bot") + '</b>'
             body += '<small> · ' + esc(msg["created_at"]) + '</small><p>'
             body += esc(msg["body"]).replace("\n", "<br>") + '</p></div>'
-    return page("Sohbet", body + '<a href="/admin">Panele dön</a></section>')
+    return page("Sohbet", body + '<p>🔄 Bu sayfa 20 saniyede bir yenilenir.</p>'
+                + '<a href="/admin">Panele dön</a></section>', refresh_seconds=20)
 
 
 @router.post("/admin/login")
