@@ -1,7 +1,7 @@
-"""Privacy-aware admin data, opt-in chat transcripts and announcement audiences.
+"""Privacy-aware admin data, first-use choice and announcement audiences.
 
-Database migrations are additive. Conversation text is never persisted before
-the user explicitly opts in. Records older than 30 days are purged on reads/writes.
+Database migrations are additive. Conversation text is never persisted without
+an explicit user choice. Records older than 30 days are purged on writes and filtered on reads.
 """
 from __future__ import annotations
 
@@ -31,8 +31,13 @@ class AdminStore:
                     joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     transcript_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                    announcements_enabled BOOLEAN NOT NULL DEFAULT FALSE
+                    announcements_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    privacy_notice_version SMALLINT NOT NULL DEFAULT 0
                 )
+            """)
+            con.execute("""
+                ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS
+                privacy_notice_version SMALLINT NOT NULL DEFAULT 0
             """)
             con.execute("""
                 CREATE TABLE IF NOT EXISTS admin_chat_messages (
@@ -86,6 +91,36 @@ class AdminStore:
                     last_seen_at=NOW()
             """, (user_id, (username or "")[:80], (first_name or "")[:100]))
         self.purge_if_due()
+
+    def privacy_status(self, user_id: int) -> tuple[int, bool]:
+        """Return accepted notice version and transcript preference.
+
+        Users from before this change receive a new notice before more
+        messages can be recorded; existing choices are not silently upgraded.
+        """
+        with self._connect() as con:
+            row = con.execute("""
+                SELECT privacy_notice_version, transcript_enabled
+                FROM admin_users WHERE user_id=%s
+            """, (user_id,)).fetchone()
+        return (int(row[0]), bool(row[1])) if row else (0, False)
+
+    def acknowledge_privacy(self, user_id: int, save_transcripts: bool):
+        """Remember an explicit yes/no choice; purge content when user declines."""
+        with self._connect() as con:
+            con.execute("""
+                INSERT INTO admin_users
+                    (user_id, privacy_notice_version, transcript_enabled)
+                VALUES (%s, 1, %s)
+                ON CONFLICT (user_id) DO UPDATE
+                SET privacy_notice_version=1,
+                    transcript_enabled=EXCLUDED.transcript_enabled
+            """, (user_id, save_transcripts))
+            if not save_transcripts:
+                con.execute(
+                    "DELETE FROM admin_chat_messages WHERE user_id=%s",
+                    (user_id,),
+                )
 
     def set_consent(self, user_id: int, column: str, enabled: bool):
         if column not in ("transcript_enabled", "announcements_enabled"):
