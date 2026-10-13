@@ -131,6 +131,11 @@ class AdminWebTests(unittest.TestCase):
                 self.assertEqual(response.headers["X-Frame-Options"], "DENY")
         asyncio.run(run())
 
+    def test_chat_refresh_does_not_cache_sensitive_pages(self):
+        response = admin_web.page("Sohbet", "<p>Test</p>", refresh_seconds=20)
+        self.assertIn('http-equiv="refresh" content="20"', response.body.decode("utf-8"))
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+
     def test_web_is_disabled_when_not_configured(self):
         async def run():
             with patch.dict(os.environ, {"ADMIN_USER_ID": "0", "ADMIN_WEB_PASSWORD": "", "ADMIN_PANEL_ENABLED": "false"}):
