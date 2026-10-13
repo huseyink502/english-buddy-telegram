@@ -1,4 +1,4 @@
-"""Private Telegram owner commands and explicitly consented message logging."""
+"""Private Telegram owner commands and transparent, user-controlled message logging."""
 from __future__ import annotations
 
 import asyncio
@@ -42,8 +42,21 @@ def is_owner(update) -> bool:
     )
 
 
+NOTICE_COMMON = (
+    "🔐 Karamaz Akademi · Gizlilik bildirimi\n\n"
+    "Bot, güvenlik ve destek için Telegram ID'ni, kullanıcı adını ve son etkinlik "
+    "tarihini saklar. Botla bundan sonra yapacağın metin sohbetleri ve AI yanıtları "
+    "en fazla 30 gün saklanabilir ve yalnızca bot sahibi tarafından incelenebilir. "
+    "Ses dosyaları ve API anahtarları bu kayıt sistemine alınmaz. "
+    "Geçmiş mesajlar geriye dönük alınamaz.\n\n"
+    "Kayıt durumunu görüp kaydı durdurmak veya kayıtlarını silmek için "
+    "/gizlilik yazabilirsin. Duyurular ve günlük haber özetleri ayrı izin gerektirir. "
+    "Özel şifre veya hassas bilgi paylaşma."
+)
+
+
 async def observe(update, context) -> None:
-    """Minimal per-user roster; save messages only if user opted in."""
+    """Explain default logging BEFORE new users' chat text can be persisted."""
     user = update.effective_user
     chat = update.effective_chat
     if user is None or chat is None or chat.type != "private" or user.is_bot:
@@ -53,16 +66,32 @@ async def observe(update, context) -> None:
         if db is None:
             return
         await asyncio.to_thread(db.seen, user.id, user.username, user.first_name)
+        needs_notice, is_legacy, was_enabled = await asyncio.to_thread(
+            db.notice_status, user.id
+        )
+        if needs_notice:
+            message = update.effective_message
+            if message is None:
+                return
+            additional = (
+                "\n\nDaha önceki gizlilik tercihin korunuyor: kayıt şu anda kapalı. "
+                "/gizlilik içinden istersen açabilirsin."
+                if is_legacy and not was_enabled else ""
+            )
+            # Nothing is recorded until Telegram has accepted this notice.
+            await message.reply_text(NOTICE_COMMON + additional)
+            await asyncio.to_thread(db.mark_notified, user.id)
+            return
         incoming = update.message
-        # Slash commands contain potential secrets: never log them.
+        # Never archive slash commands, which may carry credentials or arguments.
         if incoming and incoming.text and not incoming.text.lstrip().startswith("/"):
             await asyncio.to_thread(db.store_text, user.id, "user", incoming.text)
     except Exception:
-        LOG.warning("Optional admin telemetry unavailable")
+        LOG.warning("Admin privacy notice or optional transcript storage unavailable")
 
 
 async def note_reply(update, answer: str) -> None:
-    """Log AI response only for users who explicitly opted in."""
+    """Save AI response only when logging is enabled for that user."""
     user = update.effective_user
     if not user:
         return
@@ -74,25 +103,36 @@ async def note_reply(update, answer: str) -> None:
         LOG.warning("Optional opted-in chat transcript storage unavailable")
 
 
+def privacy_keyboard(enabled: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "⏸️ Kaydı durdur ve geçmişi sil" if enabled else "▶️ Kaydı aç",
+            callback_data="privacy:stop" if enabled else "privacy:resume",
+        )],
+        [InlineKeyboardButton("🗑️ Kayıtlarımı sil", callback_data="privacy:erase")],
+    ])
+
+
+async def privacy_summary(db: AdminStore, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
+    logging_enabled, announcements_enabled = await asyncio.to_thread(db.consent, user_id)
+    body = (
+        NOTICE_COMMON + "\n\n"
+        + ("🟢 Metin sohbet kaydı: AÇIK" if logging_enabled
+           else "🔴 Metin sohbet kaydı: KAPALI")
+        + "\n"
+        + ("📣 Yönetici duyuruları: AÇIK" if announcements_enabled
+           else "🔕 Yönetici duyuruları: KAPALI")
+        + "\n\nKayıt kontrolünü aşağıdaki butonlardan yapabilirsin. "
+          "Botun İngilizce dersleri ve haber özellikleri kayıt kapalıyken de çalışır."
+    )
+    return body, privacy_keyboard(logging_enabled)
+
+
 async def privacy_commands(update, context) -> None:
     if update.effective_chat.type != "private":
         return
     command = update.message.text.split()[0].split("@")[0].lower()
     user_id = update.effective_user.id
-    if command == "/gizlilik":
-        await update.message.reply_text(
-            "🔐 Karamaz Akademi Gizlilik\n\n"
-            "Bot, güvenlik ve kullanıcı yönetimi için Telegram ID, kullanıcı adı "
-            "ve son etkinlik tarihini saklar. Bot sahibi bu temel listeyi görür.\n"
-            "Sohbet metinlerin varsayılan olarak KAYDEDİLMEZ. /kayit_ac "
-            "komutuyla açıkça izin verirsen daha sonraki metin mesajların ve "
-            "AI yanıtları en fazla 30 gün saklanır ve yalnızca bot sahibi "
-            "tarafından incelenebilir. Önceki mesajlar geriye dönük alınamaz.\n"
-            "/kayit_kapat kayıt almayı durdurur, /kayit_sil mevcut kayıtları siler.\n"
-            "Duyurular ayrıca /duyuru_ac ile açılır, /duyuru_kapat ile kapatılır.\n"
-            "Haber özetleri /ozet_ac iznine bağlıdır. Üç izin birbirinden ayrıdır."
-        )
-        return
     db = await asyncio.to_thread(store)
     if db is None:
         await update.message.reply_text("Neon bağlantısı olmadan bu özellik kullanılamıyor.")
@@ -100,20 +140,20 @@ async def privacy_commands(update, context) -> None:
     await asyncio.to_thread(
         db.seen, user_id, update.effective_user.username, update.effective_user.first_name
     )
-    if command == "/kayit_ac":
+    if command == "/gizlilik":
+        body, keyboard = await privacy_summary(db, user_id)
+        await update.message.reply_text(body, reply_markup=keyboard)
+    elif command == "/kayit_ac":
+        # Compatibility alias: intentionally omitted from visible / menu.
         await asyncio.to_thread(db.set_consent, user_id, "transcript_enabled", True)
         await update.message.reply_text(
-            "✅ Bu andan itibaren metin sohbetlerinin en fazla 30 gün "
-            "saklanmasına ve bot sahibi tarafından incelenmesine izin verdin. "
-            "/kayit_kapat ile durdurabilir, /kayit_sil ile silebilirsin."
+            "✅ Metin sohbet kaydı açıldı. Durdurmak veya silmek için /gizlilik yaz."
         )
-    elif command == "/kayit_kapat":
-        # Protect prior sensitive messages as well when permission is revoked.
+    elif command in ("/kayit_kapat", "/kayit_sil"):
         await asyncio.to_thread(db.delete_transcripts, user_id)
-        await update.message.reply_text("🔒 Sohbet kaydı kapatıldı ve eski kayıtların silindi.")
-    elif command == "/kayit_sil":
-        await asyncio.to_thread(db.delete_transcripts, user_id)
-        await update.message.reply_text("🗑️ Sohbet kayıtların silindi ve kayıt izni kapatıldı.")
+        await update.message.reply_text(
+            "🔒 Metin sohbet kaydı durduruldu ve mevcut kayıtların silindi."
+        )
     elif command in ("/duyuru_ac", "/duyuru_kapat"):
         enabled = command == "/duyuru_ac"
         await asyncio.to_thread(db.set_consent, user_id, "announcements_enabled", enabled)
@@ -121,6 +161,30 @@ async def privacy_commands(update, context) -> None:
             "📣 Yönetici duyurularını almaya izin verdin." if enabled else
             "🔕 Yönetici duyuruları kapatıldı."
         )
+
+
+async def privacy_callback(update, context) -> None:
+    """Changes only the current user's privacy preference."""
+    query = update.callback_query
+    if update.effective_chat is None or update.effective_chat.type != "private":
+        await query.answer("Yalnızca özel sohbette.", show_alert=True)
+        return
+    db = await asyncio.to_thread(store)
+    if db is None:
+        await query.answer("Şu anda kullanılamıyor.", show_alert=True)
+        return
+    user_id = update.effective_user.id
+    action = (query.data or "").split(":")[-1]
+    if action == "resume":
+        await asyncio.to_thread(db.set_consent, user_id, "transcript_enabled", True)
+    elif action in ("stop", "erase"):
+        await asyncio.to_thread(db.delete_transcripts, user_id)
+    else:
+        await query.answer("Geçersiz işlem.", show_alert=True)
+        return
+    await query.answer("Gizlilik tercihin güncellendi.")
+    body, keyboard = await privacy_summary(db, user_id)
+    await query.edit_message_text(body, reply_markup=keyboard)
 
 
 async def owner_commands(update, context) -> None:
@@ -142,12 +206,12 @@ async def owner_commands(update, context) -> None:
             "🛡️ Karamaz Akademi — Admin\n\n"
             f"👥 Kullanıcı: {stats['users']}\n"
             f"🟢 Son 7 gün aktif: {stats['active_7d']}\n"
-            f"🗨️ Sohbet kaydı izinli: {stats['chat_optins']}\n"
+            f"🗨️ Sohbet kaydı açık: {stats['chat_optins']}\n"
             f"📣 Duyuru izinli: {stats['announcement_optins']}\n"
             f"📝 Son 30 gün kayıt: {stats['messages_30d']}\n\n"
             "Komutlar:\n"
             "/admin_kullanicilar — son kullanıcılar\n"
-            "/admin_sohbet ID — izinli sohbet geçmişi\n"
+            "/admin_sohbet ID — mevcut sohbet kayıtları\n"
             "/admin_duyuru Mesaj — izin veren herkese duyuru\n"
             + (f"🌐 Web paneli: {url}/admin" if url else "")
         )
@@ -173,13 +237,13 @@ async def owner_commands(update, context) -> None:
             await update.message.reply_text("Kullanıcı bulunamadı.")
             return
         if not profile["transcript_enabled"]:
-            await update.message.reply_text("Bu kullanıcı sohbet kaydına izin vermemiş.")
+            await update.message.reply_text("Bu kullanıcı için sohbet kaydı şu anda kapalı.")
             return
         messages = await asyncio.to_thread(db.conversations, target_id, 8)
         output = "\n\n".join(
             ("👤 " if x["direction"] == "user" else "🤖 ") + x["body"][:600]
             for x in messages
-        ) or "Henüz izinli sohbet mesajı bulunmuyor."
+        ) or "Henüz kaydedilmiş sohbet mesajı bulunmuyor."
         await update.message.reply_text(
             f"🔐 Kullanıcı {target_id} — son kayıtlar\n\n" + output[:3700]
         )
