@@ -1,7 +1,8 @@
-"""Privacy-aware admin data, opt-in chat transcripts and announcement audiences.
+"""Privacy-aware admin data, informed chat logging and announcement audiences.
 
-Database migrations are additive. Conversation text is never persisted before
-the user explicitly opts in. Records older than 30 days are purged on reads/writes.
+New users receive an explicit one-time disclosure before recording starts.
+Legacy users retain earlier opt-in or opt-out status. Records older than
+30 days are purged during active use; reads always filter old records.
 """
 from __future__ import annotations
 
@@ -33,6 +34,17 @@ class AdminStore:
                     transcript_enabled BOOLEAN NOT NULL DEFAULT FALSE,
                     announcements_enabled BOOLEAN NOT NULL DEFAULT FALSE
                 )
+            """)
+            # -1 identifies accounts created before this policy. Their existing
+            # transcript preference must never silently change on migration.
+            # Newly inserted accounts start at 0 and are notified first.
+            con.execute("""
+                ALTER TABLE admin_users
+                ADD COLUMN IF NOT EXISTS privacy_notice_version
+                INTEGER NOT NULL DEFAULT -1
+            """)
+            con.execute("""
+                ALTER TABLE admin_users ALTER COLUMN privacy_notice_version SET DEFAULT 0
             """)
             con.execute("""
                 CREATE TABLE IF NOT EXISTS admin_chat_messages (
@@ -87,14 +99,44 @@ class AdminStore:
             """, (user_id, (username or "")[:80], (first_name or "")[:100]))
         self.purge_if_due()
 
+    def notice_version(self, user_id: int) -> int:
+        """1: notice delivered; 0: new user; -1: pre-policy legacy user."""
+        with self._connect() as con:
+            row = con.execute("""
+                SELECT privacy_notice_version
+                FROM admin_users WHERE user_id=%s
+            """, (user_id,)).fetchone()
+        return int(row[0]) if row else -1
+
+    def mark_notice(self, user_id: int):
+        """Enable logging for new users only after notice was sent.
+
+        Existing users keep their stored consent/opt-out preference.
+        """
+        with self._connect() as con:
+            con.execute("""
+                UPDATE admin_users SET
+                    transcript_enabled =
+                        CASE WHEN privacy_notice_version=0
+                             THEN TRUE ELSE transcript_enabled END,
+                    privacy_notice_version=1
+                WHERE user_id=%s AND privacy_notice_version<>1
+            """, (user_id,))
+
     def set_consent(self, user_id: int, column: str, enabled: bool):
         if column not in ("transcript_enabled", "announcements_enabled"):
             raise ValueError("Invalid consent option")
         with self._connect() as con:
-            con.execute(
-                f"UPDATE admin_users SET {column}=%s WHERE user_id=%s",
-                (enabled, user_id),
-            )
+            if column == "transcript_enabled":
+                con.execute("""
+                    UPDATE admin_users
+                    SET transcript_enabled=%s, privacy_notice_version=1
+                    WHERE user_id=%s
+                """, (enabled, user_id))
+            else:
+                con.execute("""
+                    UPDATE admin_users SET announcements_enabled=%s WHERE user_id=%s
+                """, (enabled, user_id))
 
     def consent(self, user_id: int) -> tuple[bool, bool]:
         with self._connect() as con:
@@ -127,7 +169,7 @@ class AdminStore:
     def delete_transcripts(self, user_id: int):
         with self._connect() as con:
             con.execute(
-                "UPDATE admin_users SET transcript_enabled=FALSE WHERE user_id=%s",
+                "UPDATE admin_users SET transcript_enabled=FALSE, privacy_notice_version=1 WHERE user_id=%s",
                 (user_id,),
             )
             con.execute("DELETE FROM admin_chat_messages WHERE user_id=%s", (user_id,))
