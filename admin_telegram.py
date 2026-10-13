@@ -1,4 +1,4 @@
-"""Private Telegram owner commands and explicitly consented message logging."""
+"""Private Telegram admin, clear privacy notices and controllable chat logging."""
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +13,27 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from admin_store import AdminStore, send_announcement
 
 LOG = logging.getLogger("karamaz-admin")
+
+NEW_USER_NOTICE = (
+    "🔐 Karamaz Akademi — Sohbet gizliliği\n\n"
+    "Güvenlik ve hizmet kalitesi için bu bildirimin ardından botla yaptığın "
+    "METİN konuşmaları ve yapay zekâ yanıtları, yalnızca bot sahibi tarafından "
+    "görülebilecek şekilde en fazla 30 gün saklanır. Şu an gönderdiğin mesaj "
+    "sohbet kaydına alınmadı.\n\n"
+    "Bunu istemiyorsan sonraki mesajından ÖNCE /kayit_kapat yazabilirsin. "
+    "/kayit_sil ile kayıtları silebilirsin; kayıt kapalı kalır. "
+    "Ayrıntılar: /gizlilik. Yönetici duyuruları ayrıca /duyuru_ac ile açılır."
+)
+
+LEGACY_USER_NOTICE = (
+    "🔐 Karamaz Akademi — Gizlilik güncellemesi\n\n"
+    "Yeni sohbet kayıt politikamız açıkça bildiriliyor: bot sahibi güvenlik "
+    "amacıyla en fazla 30 günlük metin mesajlarını görebilir. Ancak SENİN "
+    "önceki kayıt tercihin değiştirilmedi. Kayıt önceden kapalıysa kapalı "
+    "kalacak; açmak istersen /kayit_ac yaz.\n\n"
+    "Dilediğin an /kayit_kapat veya /kayit_sil kullanabilirsin. "
+    "Ayrıntılar: /gizlilik."
+)
 
 
 @lru_cache(maxsize=1)
@@ -43,7 +64,7 @@ def is_owner(update) -> bool:
 
 
 async def observe(update, context) -> None:
-    """Minimal per-user roster; save messages only if user opted in."""
+    """First disclose content logging, then record only subsequent messages."""
     user = update.effective_user
     chat = update.effective_chat
     if user is None or chat is None or chat.type != "private" or user.is_bot:
@@ -53,18 +74,36 @@ async def observe(update, context) -> None:
         if db is None:
             return
         await asyncio.to_thread(db.seen, user.id, user.username, user.first_name)
+        # Callback queries can come from a previous bot message. Do not send
+        # privacy announcements there or start recording without new user text.
         incoming = update.message
-        # Slash commands contain potential secrets: never log them.
-        if incoming and incoming.text and not incoming.text.lstrip().startswith("/"):
+        if incoming is None:
+            return
+
+        version = await asyncio.to_thread(db.notice_version, user.id)
+        if version != 1:
+            notice = NEW_USER_NOTICE if version == 0 else LEGACY_USER_NOTICE
+            # If Telegram delivery fails, leave recording disabled. The next
+            # user update will trigger a new disclosure attempt.
+            await incoming.reply_text(notice)
+            await asyncio.to_thread(db.mark_notice, user.id)
+            context.user_data["admin_skip_reply_once"] = True
+            # The message that triggered disclosure must not be captured.
+            return
+
+        # Never log commands: these may contain tokens, other secrets or IDs.
+        if incoming.text and not incoming.text.lstrip().startswith("/"):
             await asyncio.to_thread(db.store_text, user.id, "user", incoming.text)
     except Exception:
         LOG.warning("Optional admin telemetry unavailable")
 
 
-async def note_reply(update, answer: str) -> None:
-    """Log AI response only for users who explicitly opted in."""
+async def note_reply(update, answer: str, context=None) -> None:
+    """Persist AI text only when disclosure preceded the user's question."""
     user = update.effective_user
     if not user:
+        return
+    if context is not None and context.user_data.pop("admin_skip_reply_once", False):
         return
     try:
         db = await asyncio.to_thread(store)
@@ -84,11 +123,15 @@ async def privacy_commands(update, context) -> None:
             "🔐 Karamaz Akademi Gizlilik\n\n"
             "Bot, güvenlik ve kullanıcı yönetimi için Telegram ID, kullanıcı adı "
             "ve son etkinlik tarihini saklar. Bot sahibi bu temel listeyi görür.\n"
-            "Sohbet metinlerin varsayılan olarak KAYDEDİLMEZ. /kayit_ac "
-            "komutuyla açıkça izin verirsen daha sonraki metin mesajların ve "
-            "AI yanıtları en fazla 30 gün saklanır ve yalnızca bot sahibi "
-            "tarafından incelenebilir. Önceki mesajlar geriye dönük alınamaz.\n"
-            "/kayit_kapat kayıt almayı durdurur, /kayit_sil mevcut kayıtları siler.\n"
+            "Yeni kullanıcılara ilk iletişimde kayıt politikası bildirilir. "
+            "Bildirimden SONRAKİ metin mesajları ve AI yanıtları en fazla 30 gün "
+            "saklanabilir ve yalnızca bot sahibi bunları inceleyebilir. "
+            "Bildirimden önceki mesajlar kaydedilmez; geçmiş Telegram mesajları "
+            "geriye dönük alınamaz.\n"
+            "Eski kullanıcıların önceki kayıt tercihleri korunur. "
+            "/kayit_kapat ile kaydı durdurup önceki kayıtları silebilir, "
+            "/kayit_sil ile geçmişi silebilirsin. İstersen /kayit_ac ile "
+            "kaydı tekrar etkinleştirebilirsin.\n"
             "Duyurular ayrıca /duyuru_ac ile açılır, /duyuru_kapat ile kapatılır.\n"
             "Haber özetleri /ozet_ac iznine bağlıdır. Üç izin birbirinden ayrıdır."
         )
@@ -142,12 +185,12 @@ async def owner_commands(update, context) -> None:
             "🛡️ Karamaz Akademi — Admin\n\n"
             f"👥 Kullanıcı: {stats['users']}\n"
             f"🟢 Son 7 gün aktif: {stats['active_7d']}\n"
-            f"🗨️ Sohbet kaydı izinli: {stats['chat_optins']}\n"
+            f"🗨️ Sohbet kaydı açık: {stats['chat_optins']}\n"
             f"📣 Duyuru izinli: {stats['announcement_optins']}\n"
             f"📝 Son 30 gün kayıt: {stats['messages_30d']}\n\n"
             "Komutlar:\n"
             "/admin_kullanicilar — son kullanıcılar\n"
-            "/admin_sohbet ID — izinli sohbet geçmişi\n"
+            "/admin_sohbet ID — kayıtlı sohbet geçmişi\n"
             "/admin_duyuru Mesaj — izin veren herkese duyuru\n"
             + (f"🌐 Web paneli: {url}/admin" if url else "")
         )
@@ -173,13 +216,13 @@ async def owner_commands(update, context) -> None:
             await update.message.reply_text("Kullanıcı bulunamadı.")
             return
         if not profile["transcript_enabled"]:
-            await update.message.reply_text("Bu kullanıcı sohbet kaydına izin vermemiş.")
+            await update.message.reply_text("Bu kullanıcı için sohbet kaydı kapalı.")
             return
         messages = await asyncio.to_thread(db.conversations, target_id, 8)
         output = "\n\n".join(
             ("👤 " if x["direction"] == "user" else "🤖 ") + x["body"][:600]
             for x in messages
-        ) or "Henüz izinli sohbet mesajı bulunmuyor."
+        ) or "Henüz kayıtlı sohbet mesajı bulunmuyor."
         await update.message.reply_text(
             f"🔐 Kullanıcı {target_id} — son kayıtlar\n\n" + output[:3700]
         )
