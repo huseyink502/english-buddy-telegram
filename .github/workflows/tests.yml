@@ -31,6 +31,6 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Verify Python syntax
-        run: python -m compileall -q bot.py ai.py groq_ai.py news.py news_memory.py news_monitor.py db.py postgres_db.py webapp.py admin_store.py admin_telegram.py admin_web.py admin_delivery.py admin_maintenance.py privacy_policy.py curriculum.py quiz.py tests
+        run: python -m compileall -q bot.py ai.py groq_ai.py news.py news_memory.py news_monitor.py db.py postgres_db.py webapp.py admin_store.py admin_telegram.py admin_web.py admin_delivery.py admin_maintenance.py admin_maintenance_remote.py retention_auth.py privacy_policy.py curriculum.py quiz.py tests
       - name: Run tests without API secrets
         run: python -m unittest discover -s tests -v

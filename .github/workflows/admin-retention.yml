@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  id-token: write
 concurrency:
   group: karamaz-admin-retention
   cancel-in-progress: false
@@ -23,9 +24,9 @@ jobs:
       - name: Clean expired records (also when Render sleeps)
         shell: bash
         run: |
-          if [[ -z "$DATABASE_URL" ]]; then
-            echo "Retention inactive: configure DATABASE_URL repository secret."
-            exit 1
-          fi
           python -m pip install -r requirements.txt
-          python admin_maintenance.py
+          if [[ -n "$DATABASE_URL" ]]; then
+            python admin_maintenance.py
+          else
+            python admin_maintenance_remote.py
+          fi
