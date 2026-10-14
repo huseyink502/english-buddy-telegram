@@ -1,6 +1,7 @@
 """Verify GitHub Actions OIDC for one repository, branch and maintenance job."""
 
 import asyncio
+import logging
 import time
 
 import httpx
@@ -12,6 +13,7 @@ WORKFLOW = REPOSITORY + "/.github/workflows/admin-retention.yml@refs/heads/main"
 _keys = {}
 _fetched_at = 0.0
 _lock = asyncio.Lock()
+LOG = logging.getLogger(__name__)
 
 
 async def github_keys():
@@ -33,10 +35,12 @@ async def authorized_retention(token: str, audience: str) -> bool:
     try:
         header = jwt.get_unverified_header(token)
         if header.get("alg") != "RS256":
+            LOG.warning("Retention verification rejected (AlgorithmNotAllowed)")
             return False
         keys = await github_keys()
         data = keys.get(header.get("kid"))
         if data is None:
+            LOG.warning("Retention verification rejected (UnknownSigningKey)")
             return False
         key = jwt.PyJWK.from_dict(data, algorithm="RS256").key
         claims = jwt.decode(
@@ -60,13 +64,18 @@ async def authorized_retention(token: str, audience: str) -> bool:
                 ]
             },
         )
-        return (
-            claims["sub"] == f"repo:{REPOSITORY}:ref:refs/heads/main"
-            and claims["repository"] == REPOSITORY
-            and claims["ref"] == "refs/heads/main"
-            and claims["workflow_ref"] == WORKFLOW
-            and claims["event_name"] in ("schedule", "workflow_dispatch")
-            and 0 <= time.time() - claims["iat"] <= 600
-        )
-    except (jwt.PyJWTError, KeyError, ValueError, TypeError, httpx.HTTPError):
+        checks = {
+            "subject": claims["sub"] == f"repo:{REPOSITORY}:ref:refs/heads/main",
+            "repository": claims["repository"] == REPOSITORY,
+            "branch": claims["ref"] == "refs/heads/main",
+            "workflow": claims["workflow_ref"] == WORKFLOW,
+            "event": claims["event_name"] in ("schedule", "workflow_dispatch"),
+            "age": 0 <= time.time() - claims["iat"] <= 600,
+        }
+        rejected = [name for name, passed in checks.items() if not passed]
+        if rejected:
+            LOG.warning("Retention identity scope rejected (%s)", ",".join(rejected))
+        return not rejected
+    except (jwt.PyJWTError, KeyError, ValueError, TypeError, httpx.HTTPError) as exc:
+        LOG.warning("Retention verification rejected (%s)", type(exc).__name__)
         return False
