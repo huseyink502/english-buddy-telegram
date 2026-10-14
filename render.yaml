@@ -20,5 +20,25 @@ services:
       # Change 0 to YOUR Telegram numeric ID after first /whoami.
       - key: ALLOWED_USER_ID
         value: "0"
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ADMIN_USER_ID
+        sync: false
+      - key: ADMIN_WEB_PASSWORD
+        sync: false
+      - key: ADMIN_SESSION_SECRET
+        sync: false
+      - key: ADMIN_PANEL_ENABLED
+        value: "false"
+      - key: TRANSCRIPT_DEFAULT_ENABLED
+        value: "true"
+      - key: PRIVACY_CONTROLLER
+        sync: false
+      - key: PRIVACY_CONTACT
+        sync: false
+      - key: PRIVACY_LEGAL_BASIS
+        sync: false
       # For permanent progress, add DATABASE_URL via Render dashboard
       # using a free Neon Postgres pooled connection string.

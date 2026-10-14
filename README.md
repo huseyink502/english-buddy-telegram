@@ -217,60 +217,16 @@ commit mesajlarına veya ekran görüntülerine yazma**.
 
 ## 🔐 Admin paneli (Web + Telegram)
 
-Yalnızca bot sahibi erişebilir. Varsayılan olarak **yönetim kapalıdır**.
-Render → Environment bölümüne aşağıdaki iki değişkeni ekleyin:
+Mobil koyu temalı web paneli, yalnızca yöneticiye açık Telegram butonları,
+bildirim sonrası kayıt ve kullanıcı gizlilik tercihleri, güvenli web oturumları,
+onaylı/izinli duyuru kuyruğu ve 30 günlük saklama sistemi bulunur.
 
-- `ADMIN_USER_ID`: Telegram'da `/whoami` komutundan öğrendiğiniz **kendi sayısal ID'niz**; `ALLOWED_USER_ID` ile karıştırmayın. `ADMIN_USER_ID=0` iken Telegram'daki admin komutları kapalıdır.
-- `ADMIN_WEB_PASSWORD`: En az **20 karakterlik, benzersiz ve güçlü** parola. Telegram mesajı veya kod dosyasında paylaşmayın. Parolayı bir parola yöneticisi ile üretmek önerilir.
+Kurulum, ortam değişkenleri, hukuki yapılandırma, migration, test ve canlı
+doğrulama adımları için [ADMIN_GUIDE.md](ADMIN_GUIDE.md) dosyasını okuyun.
 
-`ADMIN_PANEL_ENABLED=true` değişkeni panelin ayrıca etkinleştirilmesini sağlar. False veya eksikse web admin sayfası kapalı kalır.
-
-Mevcut `DATABASE_URL` Neon bağlantısı kullanılacaktır; ikinci bir veritabanı gerekmez.
-Ayarları kaydedip Render dağıtımı tamamlanınca:
-- Web paneli: `https://english-buddy-telegram.onrender.com/admin`
-- Telegram: `/admin`, `/admin_kullanicilar`, `/admin_sohbet <TelegramID>`,
-  `/admin_duyuru <Duyuru metni>`
-
-**Bildirim izni varsayılan olarak kapalıdır.** Kullanıcı `/duyuru_ac` yazarsa yönetici
-duyurusu alabilir; `/duyuru_kapat` ile vazgeçer. Haber bildirimi
-`/ozet_ac` izninden tamamen ayrıdır. Kullanıcıların
-`/start` komutu kullanması, yönetici duyurusuna otomatik abone yapmaz.
-
-**Sohbet kayıtları:** Yeni kullanıcılarda bot, ilk etkileşimde mesaj içeriğinin
-güvenlik ve destek amacıyla bot sahibi tarafından incelenmek üzere en fazla 30 gün
-saklanabileceğini açıkça bildirir. **Bu ilk mesaj arşivlenmez.** Bildirim
-Telegram üzerinden başarıyla iletildikten sonra sonraki metin mesajları ve
-AI yanıtları saklanır; komut metinleri, ses dosyaları ve API anahtarları
-kaydedilmez. Daha önceki sürümde kayıt tercihi bulunan mevcut kullanıcıların
-tercihleri (açık veya kapalı) **değiştirilmez**. Bunun nedeni önceki kapalı
-durumun açık bir devre dışı bırakma tercihi olup olmadığının bilinememesidir.
-Bu kullanıcılar isterlerse kaydı sonradan kendileri açabilir.
-
-Komut menüsünde yalnızca \`/gizlilik\` bulunur. Bu ekranda kayıt durumunu
-gösteren **Kaydı aç**, **Kaydı durdur ve geçmişi sil** ve **Kayıtlarımı sil**
-butonları vardır. Önceki \`/kayit_ac\`, \`/kayit_kapat\`, \`/kayit_sil\` komutları
-eski bağlantılar bozulmasın diye çalışmaya devam eder fakat Telegram'ın görünür
-komut menüsünden kaldırılmıştır. Kayıt kontrolü kullanıcıya aittir.
-
-Kayıtlar 30 gün sonra erişilemez, düzenli kullanıcı etkileşimlerinde temizlenir;
-hiç etkinlik olmayan dönemlerde otomatik zamanlı silmenin ayrıca planlanması
-gerekir. Telegram geçmiş mesajlarını geriye dönük topluca sunmaz.
-Kullanıcı ID'si, kullanıcı adı ve son etkinlik zamanı yönetim amaçlı saklanır.
-
-**Önemli hukukî not:** Mesaj içeriklerinin varsayılan olarak işlenmesi için,
-KVKK kapsamında amaca uygun bir işleme şartı, açık aydınlatma metni,
-veri minimizasyonu ve saklama süresi değerlendirilmelidir. Sırf botun sahibi
-olmak, tüm mesaj içeriklerini sınırsız saklama yetkisi vermez.
-Özellikle hassas içerikler için varsayılan kayıt yerine kullanıcı onaylı
-yaklaşım gerekebilir.
-
-Web paneli; HTTPS üzerinde imzalı, HttpOnly/Secure/SameSite=Strict çerez,
-CSRF doğrulaması ve temel başarısız giriş sınırı kullanır. `/admin` yolu
-Render'da HTTPS ile açılmalıdır; API anahtarı veya yönetici parolası
-URL parametresi olarak eklenmemelidir. Tüm gönderilen duyurular yalnızca
-mevcut izni olan kullanıcılara yollanır. Botu engelleyen kullanıcıya
-Telegram mesajı ulaşmaz.
-
-Güvenlik notu: Parola tabanlı bu ilk sürümde çok faktörlü doğrulama ve
-merkezî, kalıcı IP sınırlaması bulunmamaktadır. Daha büyük kamuya açık bot
-için Telegram kimlik doğrulaması/2FA ve ayrı bir görev kuyruğu eklenmelidir.
+Panel `/admin`; kullanıcı kontrolleri `/gizlilik` ekranındadır. `ADMIN_USER_ID`
+yönetici yetkisidir; `ALLOWED_USER_ID` botun genel erişim sınırıdır.
+Deneysel ders kurulumunda yeni kullanıcıların kaydı ilk bildirimden sonra açılır;
+mevcut kullanıcıların kapalı tercihleri korunur. `TRANSCRIPT_DEFAULT_ENABLED=false`
+ile otomatik kayıt kapatılabilir. Hukuki bilgi alanları isteğe bağlıdır;
+bu deneysel kurulum için KVKK uygunluğu iddia edilmez.
