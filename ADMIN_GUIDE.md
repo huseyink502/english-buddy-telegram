@@ -87,7 +87,13 @@ sağlayıcılarının işleme/aktarım şartları da bu değerlendirmeye dahildi
 
 Kayıtlar 30 gün sonunda sorgularda erişilemez. Çalışan servis saatlik temizlik
 yapar; ayrıca **Admin data retention** GitHub Actions görevi Render uyurken de
-temizlik yapar. Depodaki `DATABASE_URL` Actions sırrının varlığı kontrol edilmeli.
+temizlik yapar. Actions'ta `DATABASE_URL` varsa doğrudan DB görevini kullanır.
+Yoksa GitHub OIDC ile 5 dakikalık kimlik alıp mevcut Render uygulamasındaki
+`/internal/admin-retention` adresini çağırır. Render kendi Neon bağlantısıyla
+yalnızca süre temizliği yapar; veritabanı parolası GitHub'a taşınmaz.
+OIDC doğrulaması imza/issuer/audience/süre, depo, `main` dalı, görev dosyası ve
+schedule/manual tetikleme türünü kontrol eder. Bu kimlik kullanıcı/sohbet
+okuyamaz ve başka admin işlemi yapamaz. Görev için `id-token: write` gereklidir.
 GitHub schedule gecikebilir; tam 30. gün saniyesinde fiziksel silme garantisi
 yoktur. Manuel görev: `python admin_maintenance.py`. Neon geri yükleme/yedek
 pencereleri ayrı yönetilir; kullanıcı silme talebinin yedeklerden geri getirilmemesi

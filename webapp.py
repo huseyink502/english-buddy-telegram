@@ -20,6 +20,7 @@ from admin_web import router as admin_router
 from admin_telegram import store as admin_storage
 from admin_delivery import delivery_loop
 from admin_maintenance import maintenance_loop
+from retention_auth import authorized_retention
 
 LOG = logging.getLogger(__name__)
 
@@ -146,6 +147,25 @@ Panelin giriş bilgileri yalnızca Render üzerinden tanımlanır.</p>
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "english-buddy"}
+
+
+@app.post('/internal/admin-retention')
+async def retention(request: Request):
+    authorization = request.headers.get('Authorization','')
+    token = authorization.removeprefix('Bearer ') if authorization.startswith('Bearer ') else ''
+    audience = external_url() + '/internal/admin-retention'
+    if not await authorized_retention(token,audience):
+        raise HTTPException(403,'Forbidden')
+    try:
+        db = await asyncio.to_thread(admin_storage)
+        if db is None:
+            raise HTTPException(503,'Retention storage unavailable')
+        await asyncio.to_thread(db.purge_if_due)
+    except psycopg.Error:
+        LOG.warning('Scheduled retention storage unavailable')
+        raise HTTPException(503,'Retention storage unavailable') from None
+    # No access to user bodies or any other administrative operation.
+    return {'status':'ok'}
 
 
 @app.post("/telegram/webhook")
