@@ -2,7 +2,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from telegram.ext import ApplicationHandlerStop
 
@@ -60,7 +60,7 @@ class TranscriptPolicyTests(unittest.TestCase):
             with patch("admin_telegram.store", return_value=db):
                 await observe(update, SimpleNamespace())
             update.message.reply_text.assert_not_awaited()
-            db.store_text.assert_called_once_with(42, "user", "İkinci mesaj")
+            db.store_text.assert_called_once_with(42, "user", "İkinci mesaj", None, ANY, ANY)
         asyncio.run(run())
 
     def test_slash_commands_never_archived(self):
@@ -84,7 +84,7 @@ class TranscriptPolicyTests(unittest.TestCase):
         self.assertTrue(any("ADD COLUMN IF NOT EXISTS legacy_record" in q for q in queries))
         self.assertTrue(any("ADD COLUMN IF NOT EXISTS notice_shown_at" in q for q in queries))
         mutation = next(q for q in queries if "SET notice_shown_at=NOW()" in q)
-        self.assertIn("WHEN legacy_record=FALSE THEN TRUE", mutation)
+        self.assertIn("WHEN legacy_record=FALSE AND privacy_choice_at IS NULL THEN %s", mutation)
         self.assertIn("ELSE transcript_enabled", mutation)
 
     def test_user_can_disable_and_erase_records(self):
@@ -102,7 +102,7 @@ class TranscriptPolicyTests(unittest.TestCase):
             db = MagicMock()
             db.consent.return_value = (False, False)
             with patch("admin_telegram.store", return_value=db):
-                await privacy_callback(upd, SimpleNamespace())
+                await privacy_callback(upd, SimpleNamespace(user_data={}))
             db.delete_transcripts.assert_called_once_with(42)
             query.answer.assert_awaited_once()
             self.assertIn("KAPALI", query.edit_message_text.call_args.args[0])

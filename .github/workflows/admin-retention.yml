@@ -1,0 +1,31 @@
+name: Admin data retention
+on:
+  schedule:
+    - cron: '37 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: karamaz-admin-retention
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Clean expired records (also when Render sleeps)
+        shell: bash
+        run: |
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "Retention inactive: configure DATABASE_URL repository secret."
+            exit 1
+          fi
+          python -m pip install -r requirements.txt
+          python admin_maintenance.py

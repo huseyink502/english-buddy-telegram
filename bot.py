@@ -9,13 +9,13 @@ from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram import BotCommand, BotCommandScopeChat, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import BadRequest
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, TypeHandler, filters
 
 from ai import GeminiTeacher
-from admin_telegram import observe, note_reply, owner_commands, privacy_commands, privacy_callback, admin_announcement_callback
+from admin_telegram import observe, note_reply, owner_commands, privacy_commands, privacy_callback, admin_announcement_callback, admin_menu_callback, admin_input, owner_id
 from ai_fallback import generate_with_fallback, is_retryable_gemini_error
 from groq_ai import GroqNewsAssistant
 from news_memory import NewsMemory, TOPICS
@@ -86,19 +86,43 @@ BOT_COMMANDS = [
     BotCommand("next", "Bir sonraki ders günü"),
     BotCommand("help", "Yardım ve komutlar"),
     BotCommand("gizlilik", "Kullanıcı verileri ve izinler"),
-    BotCommand("duyuru_ac", "Yönetici duyurularına abone ol"),
-    BotCommand("duyuru_kapat", "Duyuruları kapat"),
-    BotCommand("admin", "Yönetici paneli (sadece sahip)"),
-    BotCommand("admin_kullanicilar", "Yönetici: kullanıcılar"),
-    BotCommand("admin_sohbet", "Yönetici: mevcut sohbet kayıtları"),
-    BotCommand("admin_duyuru", "Yönetici: duyuru gönder"),
 ]
 
 
 async def register_commands(application) -> None:
     """Register slash commands for Telegram's native '/' autocomplete menu."""
     await application.bot.set_my_commands(BOT_COMMANDS)
+    if owner_id() > 0:
+        await application.bot.set_my_commands(BOT_COMMANDS + [BotCommand('admin','Yönetici menüsü')],scope=BotCommandScopeChat(owner_id()))
     LOG.info("Telegram slash command menu updated")
+
+
+async def polling_init(application):
+    await register_commands(application)
+    if os.getenv('DATABASE_URL'):
+        from admin_telegram import store
+        from admin_delivery import delivery_loop
+        from admin_maintenance import maintenance_loop
+        try:
+            db = await asyncio.to_thread(store)
+            application.bot_data['admin_tasks'] = [
+                asyncio.create_task(delivery_loop(application.bot,db)),
+                asyncio.create_task(maintenance_loop(db)),
+            ]
+        except Exception:
+            LOG.warning('Admin startup unavailable in local polling mode')
+
+
+async def polling_shutdown(application):
+    tasks = application.bot_data.pop('admin_tasks',[])
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks,return_exceptions=True)
+
+
+async def handler_error(update, context):
+    # PTB's default exception log can include provider responses or Telegram URLs.
+    LOG.warning('Telegram handler failed (%s)',type(context.error).__name__)
 
 
 
@@ -136,7 +160,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🎮 Oyun Gündemi: Oyunlar, Brawl Stars ve GTA 6 haberleri\n\n"
         "🔐 Gizlilik: İlk kullanımda bilgilendirme gönderilir. Sonraki metin mesajları "
         "güvenlik için en fazla 30 gün saklanabilir. Kaydı yönetmek veya silmek için "
-        "/gizlilik yaz. Önceki tercihlerin korunur. Duyuru izni: /duyuru_ac.\n\n"
+        "/gizlilik yaz. Önceki tercihlerin korunur. Duyuru iznini de /gizlilik ile yönet.\n\n"
         "İlk ders için 📚 Ders'e dokun. Bana doğrudan mesaj da yazabilirsin.",
         reply_markup=MENU,
     )
@@ -166,7 +190,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/gelismeler gta6 arşivi aç\n"
         "/oyun oyun dünyası\n/brawlstars Brawl Stars\n/gta6 GTA 6\n"
         "/gizlilik metin kaydı ve veri yönetimi\n"
-        "/duyuru_ac duyuruları aç\n/duyuru_kapat duyuruları kapat\n"
         "/whoami ID öğren\n/help yardım\n\n"
         "Sesli mesaj gönderirsen Gemini konuşmanı çözümleyip geri bildirim verir.",
         reply_markup=MENU,
@@ -299,7 +322,7 @@ async def show_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
     try:
         articles = await load_category(category)
     except Exception:
-        LOG.exception("RSS feed fetch or parsing failed for %s", category)
+        LOG.warning("RSS feed fetch or parsing failed for %s", category)
         retry_command = "/oyun" if category in ("oyun", "brawlstars", "gta6") else "/haberler"
         msg = f"⚠️ Haber kaynağına şu an erişilemiyor. Biraz sonra {retry_command} ile tekrar dene."
         if query:
@@ -429,19 +452,19 @@ async def ask_news_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, questi
             try:
                 answer = await GROQ_NEWS_AI.answer_news_question(article, question, history, related)
             except Exception:
-                LOG.exception("Groq news AI failed; falling back to Gemini")
+                LOG.warning("Groq news AI failed; falling back to Gemini")
                 answer = await TEACHER.answer_news_question(article, question, history)
         else:
             answer = await TEACHER.answer_news_question(article, question, history)
     except Exception:
-        LOG.exception("News Gemini request failed")
+        LOG.warning("News Gemini request failed")
         await update.message.reply_text(
             "⚠️ Gemini habere yanıt veremedi. API kotasını ve bağlantıyı kontrol et."
         )
         return
     history.extend([("user", question), ("model", answer)])
     context.user_data["news_history"] = history[-6:]
-    await note_reply(update, answer)
+    await note_reply(update, answer, context)
     for offset in range(0, len(answer), 3900):
         await update.message.reply_text(answer[offset:offset + 3900])
 
@@ -528,7 +551,7 @@ async def news_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             message = await asyncio.to_thread(memory.formatted_digest, day, topics)
             await update.message.reply_text(message, disable_web_page_preview=True)
     except Exception:
-        LOG.exception("News subscription or archive request failed")
+        LOG.warning("News subscription or archive request failed")
         await update.message.reply_text(
             "⚠️ Haber hafızasına erişilemedi. Neon bağlantısını kontrol et."
         )
@@ -556,7 +579,7 @@ async def topic_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except ValueError as exc:
         await query.answer(str(exc), show_alert=True)
     except Exception:
-        LOG.exception("Topic update failed")
+        LOG.warning("Topic update failed")
         await query.answer("Güncellenemedi, Neon bağlantısını kontrol et.", show_alert=True)
 
 
@@ -634,7 +657,7 @@ async def ask_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, message: st
         answer = "↪️ Gemini yoğun olduğu için bu yanıt Groq üzerinden oluşturuldu.\n\n" + answer
     history.extend([("user", message), ("model", answer)])
     context.user_data["chat_history"] = history[-10:]
-    await note_reply(update, answer)
+    await note_reply(update, answer, context)
     # Telegram messages are limited in size. Split long responses safely.
     for chunk_start in range(0, len(answer), 3900):
         await update.message.reply_text(answer[chunk_start:chunk_start + 3900])
@@ -665,7 +688,7 @@ async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         audio.name = "pronunciation.mp3"
         await update.message.reply_audio(audio=audio, title=f"Telaffuz: {phrase[:50]}")
     except Exception:
-        LOG.exception("TTS error")
+        LOG.warning("TTS error")
         await update.message.reply_text("⚠️ Ses şu an oluşturulamadı; internet erişimini kontrol et.")
 
 
@@ -683,7 +706,7 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await telegram_file.download_to_memory(out=audio)
         reply = await TEACHER.analyse_voice(audio.getvalue())
     except Exception:
-        LOG.exception("Gemini voice request failed")
+        LOG.warning("Gemini voice request failed")
         await update.message.reply_text("⚠️ Ses analiz edilemedi. API kotasını ve modelini kontrol et.")
         return
     await update.message.reply_text(reply[:4000])
@@ -691,6 +714,8 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_access(update):
+        return
+    if await admin_input(update, context):
         return
     text = update.message.text.strip()
     button_map = {
@@ -728,7 +753,8 @@ def build_application():
         raise SystemExit(".env dosyasında TELEGRAM_BOT_TOKEN ve GEMINI_API_KEY ayarlanmalı.")
     TEACHER = GeminiTeacher(api_key)
     GROQ_NEWS_AI = GroqNewsAssistant(os.environ["GROQ_API_KEY"].strip()) if os.getenv("GROQ_API_KEY", "").strip() else None
-    app = ApplicationBuilder().token(token).post_init(register_commands).build()
+    app = ApplicationBuilder().token(token).post_init(polling_init).post_shutdown(polling_shutdown).build()
+    app.add_error_handler(handler_error)
     for command, handler in [
         ("start", start), ("whoami", whoami), ("help", help_command), ("lesson", lesson),
         ("next", next_day), ("quiz", quiz_command), ("review", review_command),
@@ -748,8 +774,9 @@ def build_application():
     ]:
         app.add_handler(CommandHandler(command, handler))
     app.add_handler(TypeHandler(Update, observe), group=-1)
-    app.add_handler(CallbackQueryHandler(admin_announcement_callback, pattern=r"^admin:(confirm|cancel):[0-9a-f]{12}$"))
-    app.add_handler(CallbackQueryHandler(privacy_callback, pattern=r"^privacy:(resume|stop|erase)$"))
+    app.add_handler(CallbackQueryHandler(admin_announcement_callback, pattern=r"^admin:(confirm|cancel):\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_menu_callback,pattern=r"^admin:(users|stats|chats|announce|user:\d+)$"))
+    app.add_handler(CallbackQueryHandler(privacy_callback, pattern=r"^privacy:(resume|stop|erase|announcements_on|announcements_off)$"))
     app.add_handler(CallbackQueryHandler(quiz_answer, pattern=r"^quiz:\d+$"))
     app.add_handler(CallbackQueryHandler(news_category_callback, pattern=r"^news:(turkiye|trson|siyaset|tbmm|son|gundem|dunya|ekonomi|teknoloji|bbc|oyun|brawlstars|gta6)$"))
     app.add_handler(CallbackQueryHandler(article_callback, pattern=r"^article:[a-f0-9]{16}$"))
