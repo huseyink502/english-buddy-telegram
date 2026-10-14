@@ -1,278 +1,384 @@
-"""Password-protected, mobile-friendly owner-only admin pages.
+"""Owner-only UI: password + Telegram OTP, revocable sessions and CSRF."""
 
-Disabled until ADMIN_USER_ID and a strong ADMIN_WEB_PASSWORD are configured.
-No secrets in links, cookies are signed, HttpOnly, Secure, and SameSite=Strict.
-"""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import html
 import os
 import secrets
 import time
-from functools import lru_cache
-from urllib.parse import parse_qs, urlparse
+from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlparse
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from admin_store import AdminStore, send_announcement
+from admin_telegram import owner_id
+from admin_telegram import store as storage
 
 router = APIRouter()
-FAILURES = {}
-SESSION_LIFETIME = 8 * 3600
 COOKIE = "karamaz_admin"
-CSS = """
-*{box-sizing:border-box}body{background:#0b1220;color:#edf2fb;
-font-family:system-ui,-apple-system,sans-serif;margin:0;padding:22px}
-main{max-width:1020px;margin:24px auto}h1{font-size:1.65rem}
-h2{font-size:1.2rem;margin-top:28px}p,small{color:#a8b9d4}
-section,.box{background:#152136;border:1px solid #2b405a;
-border-radius:16px;padding:20px;margin:16px 0}
-a{color:#7bd4fa}input,textarea{display:block;width:100%;
-padding:12px;background:#101a2a;border:1px solid #52647f;
-color:white;border-radius:8px;margin:9px 0;font:inherit}
-button{background:#397ff2;border:0;color:white;border-radius:8px;
-padding:12px 18px;font-weight:700;cursor:pointer}
-table{width:100%;border-collapse:collapse}td,th{text-align:left;
-padding:11px 8px;border-bottom:1px solid #30435e;word-break:break-word}
-.muted{color:#b5c5dd}.good{color:#80e6ad}.warn{color:#ffd18a}
-.stats{display:flex;flex-wrap:wrap;gap:12px}.stat{flex:1;min-width:145px}
-.stat b{font-size:1.65rem}form.inline{display:inline-block}
-footer{margin-top:25px;color:#a8b9d4}
-"""
+LOGIN_COOKIE = "karamaz_login"
+CHALLENGE_COOKIE = "karamaz_challenge"
+SESSION_LIFETIME = 8 * 3600
+ASSETS = Path(__file__).parent / "admin_assets"
 
 
 def config_ok() -> bool:
-    # Deliberately off until the service owner explicitly enables the panel.
-    return os.getenv("ADMIN_PANEL_ENABLED", "").strip().lower() in ("1", "true", "yes") and bool(os.getenv("DATABASE_URL")) and (
-        os.getenv("ADMIN_USER_ID", "").strip().isdigit()
-        and int(os.getenv("ADMIN_USER_ID", "0")) > 0
+    return (
+        os.getenv("ADMIN_PANEL_ENABLED", "").lower() in ("1", "true", "yes")
+        and bool(os.getenv("DATABASE_URL"))
+        and owner_id() > 0
         and len(os.getenv("ADMIN_WEB_PASSWORD", "")) >= 20
     )
 
 
-@lru_cache(maxsize=1)
-def storage() -> AdminStore:
-    obj = AdminStore(os.environ["DATABASE_URL"])
-    obj.setup()
-    return obj
-
-
-def secret_bytes() -> bytes:
-    return hashlib.sha256(os.environ["ADMIN_WEB_PASSWORD"].encode("utf-8")).digest()
-
-
 def signature(value: str) -> str:
-    return hmac.new(secret_bytes(), value.encode("utf-8"), hashlib.sha256).hexdigest()
+    key = os.getenv("ADMIN_SESSION_SECRET") or os.environ["ADMIN_WEB_PASSWORD"]
+    return hmac.new(
+        key.encode(), ("karamaz-admin-v2:" + value).encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def equal(left: str, right: str) -> bool:
+    return hmac.compare_digest(left.encode(), right.encode())
+
+
+def credential_hash() -> str:
+    return signature(f"credential:{owner_id()}:{os.environ['ADMIN_WEB_PASSWORD']}")
 
 
 def signed_session() -> str:
-    base = f"{int(time.time())}:{secrets.token_hex(20)}"
-    return base + ":" + signature(base)
+    return secrets.token_urlsafe(32)
 
 
-def is_admin(request: Request) -> bool:
+async def is_admin(request: Request) -> bool:
     if not config_ok():
         return False
-    value = request.cookies.get(COOKIE, "")
+    token = request.cookies.get(COOKIE, "")
+    if not (40 <= len(token) <= 64):
+        return False
     try:
-        stamp, nonce, sig = value.split(":")
-        age = time.time() - int(stamp)
-        if not (0 <= age < SESSION_LIFETIME) or len(nonce) != 40:
-            return False
-        return hmac.compare_digest(sig, signature(stamp + ":" + nonce))
-    except (ValueError, TypeError):
+        db = await asyncio.to_thread(storage)
+        return await asyncio.to_thread(
+            db.session_valid, digest(token), owner_id(), credential_hash()
+        )
+    except Exception:
         return False
 
 
 def csrf_token(request: Request) -> str:
-    return signature("csrf:" + request.cookies[COOKIE])
+    return signature("csrf:" + request.cookies.get(COOKIE, ""))
 
 
-def guard_csrf(request: Request, value: str) -> None:
-    if not is_admin(request):
-        raise HTTPException(403, "Forbidden")
+def guard_origin(request: Request):
     origin = request.headers.get("origin")
-    host = request.headers.get("host", "")
-    # SameSite already protects against cross-origin cookies; also check Origin.
     if origin:
         parsed = urlparse(origin)
-        if parsed.netloc != host or parsed.scheme not in ("https", "http"):
-            raise HTTPException(403, "Invalid request origin")
-    if not hmac.compare_digest(csrf_token(request), value):
+        if parsed.netloc != request.headers.get("host") or parsed.scheme != "https":
+            raise HTTPException(403, "Invalid origin")
+
+
+async def guard_csrf(request: Request, value: str):
+    if not await is_admin(request):
+        raise HTTPException(403, "Forbidden")
+    guard_origin(request)
+    if not equal(csrf_token(request), value):
         raise HTTPException(403, "Invalid form token")
 
 
 async def values(request: Request) -> dict:
-    if request.headers.get("content-type", "").split(";")[0] != "application/x-www-form-urlencoded":
+    if (
+        request.headers.get("content-type", "").split(";")[0]
+        != "application/x-www-form-urlencoded"
+    ):
         raise HTTPException(415, "Expected form data")
-    data = await request.body()
-    if len(data) > 6000:
-        raise HTTPException(413, "Form too large")
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > 12000:
+            raise HTTPException(413, "Form too large")
     try:
-        return {k: v[0] for k, v in parse_qs(
-            data.decode("utf-8"), keep_blank_values=True, max_num_fields=10
-        ).items()}
-    except (UnicodeDecodeError, ValueError):
+        return {
+            k: v[0]
+            for k, v in parse_qs(
+                data.decode(), keep_blank_values=True, max_num_fields=12
+            ).items()
+        }
+    except (ValueError, UnicodeDecodeError):
         raise HTTPException(400, "Invalid form")
-
-
-def page(title: str, body: str, refresh_seconds: int | None = None) -> HTMLResponse:
-    safe_title = html.escape(title)
-    result = HTMLResponse(
-        f'<!doctype html><html lang="tr"><head><meta charset="utf-8">'
-        f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-        + (f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">'
-           if refresh_seconds else '')
-        + f'<title>{safe_title} | Karamaz Akademi</title><style>{CSS}</style>'
-        f'</head><body><main><h1>🛡️ Karamaz Akademi · Yönetici Paneli</h1>'
-        f'{body}<footer>Yetkili yönetici alanı · Kullanıcı sohbetleri yalnızca '
-        f'ilk bilgilendirmeden sonra kaydedilebilir; en fazla 30 gün tutulur.</footer></main></body></html>'
-    )
-    result.headers.update({
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff",
-        "X-Frame-Options": "DENY",
-        "Referrer-Policy": "no-referrer",
-        "Content-Security-Policy":
-            "default-src 'none'; style-src 'unsafe-inline'; "
-            "form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-    })
-    return result
 
 
 def esc(value) -> str:
     return html.escape(str(value if value is not None else ""), quote=True)
 
 
-def login_page(message="") -> HTMLResponse:
-    return page("Giriş", (
-        '<section><h2>Güvenli giriş</h2><p>Yalnızca bot sahibi içindir.</p>'
-        + ('<p class="warn">' + esc(message) + '</p>' if message else '')
-        + '<form action="/admin/login" method="post">'
-          '<label>Yönetici parolası</label>'
-          '<input type="password" name="password" autocomplete="current-password" '
-          'required minlength="20"><button type="submit">Giriş yap</button>'
-          '</form></section>'
-    ))
+def date_label(value) -> str:
+    return (
+        value.astimezone(ZoneInfo("Europe/Istanbul")).strftime("%d.%m.%Y %H:%M:%S")
+        if value
+        else "—"
+    )
 
 
-def protected(request: Request):
+def page(title: str, body: str, status: int = 200) -> HTMLResponse:
+    nonce = secrets.token_urlsafe(20)
+    css = (ASSETS / "admin.css").read_text()
+    result = HTMLResponse(
+        '<!doctype html><html lang="tr"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>{esc(title)} · Karamaz Akademi</title><style nonce="{nonce}">{css}</style>'
+        f'<script src="/admin/assets/admin.js" defer nonce="{nonce}"></script></head>'
+        '<body><aside><a class="brand" href="/admin">KA<span>Karamaz Akademi<small>Yönetim merkezi</small></span></a>'
+        '<nav><a href="/admin">◈ Genel bakış</a><a href="/admin/users">♙ Kullanıcılar</a>'
+        '<a href="/admin/announcements">↗ Duyurular</a></nav>'
+        "<p>Özel yönetici alanı<br>30 günlük sohbet arşivi</p></aside><main>"
+        f"<header><div><small>KARAMAZ AKADEMİ</small><h1>{esc(title)}</h1></div>"
+        '<span class="badge">● Güvenli alan</span></header>'
+        + body
+        + "<footer>Tüm saatler Türkiye saati (UTC+3). Kullanıcı gizlilik tercihleri geçerlidir.</footer></main></body></html>",
+        status_code=status,
+    )
+    result.headers.update(
+        {
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "no-referrer",
+            "Content-Security-Policy": f"default-src 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        }
+    )
+    return result
+
+
+def set_cookie(response, name: str, value: str, age: int):
+    response.set_cookie(
+        name,
+        value,
+        max_age=age,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+        path="/admin",
+    )
+
+
+def login_page(message: str = "", status: int = 401):
+    token = f"{int(time.time())}:{secrets.token_hex(16)}"
+    token += ":" + signature("login:" + token)
+    response = page(
+        "Güvenli giriş",
+        '<section class="login"><h2>Yalnızca bot yöneticisi</h2>'
+        "<p>Parolanı girdikten sonra Telegram yönetici hesabına tek kullanımlık kod gönderilir.</p>"
+        f'<p class="warn">{esc(message)}</p><form action="/admin/login" method="post">'
+        f'<input type="hidden" name="csrf" value="{esc(token)}">'
+        '<label>Yönetici parolası<input type="password" name="password" autocomplete="current-password" required minlength="20"></label>'
+        '<button type="submit">Telegram kodu al</button></form></section>',
+        status,
+    )
+    set_cookie(response, LOGIN_COOKIE, token, 900)
+    return response
+
+
+async def protected(request: Request):
     if not config_ok():
-        return page("Kurulum gerekli", (
-            "<section><h2>Panel henüz etkin değil</h2>"
-            "<p>Render Environment bölümüne ADMIN_USER_ID (Telegram sahibi ID), "
-            "en az 20 karakterlik ADMIN_WEB_PASSWORD ve "
-            "ADMIN_PANEL_ENABLED=true değişkenlerini ekleyin.</p></section>"
-        ))
-    if not is_admin(request):
+        return page(
+            "Kurulum gerekli",
+            "<section><h2>Panel henüz etkin değil</h2><p>Yönetici, Render ortamında ADMIN_PANEL_ENABLED, ADMIN_USER_ID, ADMIN_WEB_PASSWORD ve DATABASE_URL ayarlarını tamamlamalı.</p></section>",
+            503,
+        )
+    if not await is_admin(request):
         return login_page()
     return None
 
 
-@router.get("/admin", response_class=HTMLResponse)
+def auth_form(request: Request, action: str, button: str) -> str:
+    return f'<form method="post" action="{esc(action)}"><input type="hidden" name="csrf" value="{esc(csrf_token(request))}"><button>{esc(button)}</button></form>'
+
+
+def user_rows(people) -> str:
+    return "".join(
+        f'<tr><td><a href="/admin/user/{int(p["user_id"])}">{int(p["user_id"])}</a></td>'
+        f"<td>{esc(p['first_name'] or '—')}<small>@{esc(p['username'] or '—')}</small></td>"
+        f"<td>{esc(date_label(p['joined_at']))}</td><td>{esc(date_label(p['last_seen_at']))}</td>"
+        f'<td><span class="badge {"on" if p["transcript_enabled"] else "off"}">{"Açık" if p["transcript_enabled"] else "Kapalı"}</span></td>'
+        f"<td>{'İzinli' if p['announcements_enabled'] else 'Kapalı'}</td></tr>"
+        for p in people
+    )
+
+
+def user_table(people) -> str:
+    return (
+        '<div class="table-wrap"><table><thead><tr><th>Telegram ID</th><th>Kullanıcı</th><th>İlk giriş*</th><th>Son aktivite</th><th>Kayıt</th><th>Duyuru</th></tr></thead><tbody>'
+        + user_rows(people)
+        + "</tbody></table></div>"
+    )
+
+
+@router.get("/admin/assets/admin.js")
+async def javascript():
+    return Response(
+        (ASSETS / "admin.js").read_text(),
+        media_type="application/javascript",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"},
+    )
+
+
+@router.get("/admin")
 async def dashboard(request: Request):
-    denied = protected(request)
-    if denied:
+    denied = await protected(request)
+    if denied is not None:
         return denied
-    import asyncio
     db = await asyncio.to_thread(storage)
     stats = await asyncio.to_thread(db.stats)
-    people = await asyncio.to_thread(db.users, 25, 0)
-    token = esc(csrf_token(request))
+    people = await asyncio.to_thread(db.users, 10, 0)
     cards = "".join(
-        f'<div class="box stat"><b>{stats[key]}</b><br>{title}</div>'
-        for key, title in [
-            ("users", "Toplam kullanıcı"), ("active_7d", "Son 7 gün aktif"),
-            ("chat_optins", "Sohbet kaydı açık"),
-            ("announcement_optins", "Duyuru izni"),
-            ("messages_30d", "30 günlük kayıt"),
-        ]
+        f'<article class="stat"><small>{label}</small><b>{int(stats[key])}</b></article>'
+        for key, label in (
+            ("users", "Toplam kullanıcı"),
+            ("active_1d", "Son 24 saat aktif"),
+            ("active_7d", "Son 7 gün aktif"),
+            ("messages_30d", "Kaydedilen mesaj"),
+            ("chat_optins", "Kayıt açık"),
+            ("chat_disabled", "Kayıt kapalı"),
+            ("announcement_optins", "Duyuru aboneleri"),
+        )
     )
-    rows = "".join(
-        f'<tr><td><a href="/admin/user/{p["user_id"]}">{p["user_id"]}</a></td>'
-        f'<td>{esc(p["username"] or p["first_name"] or "—")}</td>'
-        f'<td>{esc(p["last_seen_at"].strftime("%d.%m.%Y %H:%M"))}</td>'
-        f'<td>{"✅" if p["transcript_enabled"] else "—"}</td>'
-        f'<td>{"✅" if p["announcements_enabled"] else "—"}</td></tr>'
-        for p in people
+    await asyncio.to_thread(db.audit, owner_id(), "dashboard.view")
+    return page(
+        "Genel bakış",
+        '<p>Bot etkinliği ve izinli iletişimleri tek yerden takip et.</p><div class="stats">'
+        + cards
+        + "</div>"
+        '<section><div class="section-heading"><h2>Son kullanıcı aktiviteleri</h2><a href="/admin/users">Tümünü gör →</a></div>'
+        + user_table(people)
+        + "<small>* Eski kullanıcılar için bu tarih admin sistemine ilk aktarım zamanıdır.</small></section>"
+        + auth_form(request, "/admin/logout", "Güvenli çıkış"),
     )
-    return page("Panel", (
-        '<p class="muted">Sohbet metinleri kullanıcıya yapılan ilk gizlilik bildiriminden sonra '
-        'kaydedilebilir. Önceden kapatılmış kayıt tercihleri korunur; '
-        'kayıtları /gizlilik üzerinden yönetebilir ve silebilirler. '
-        'Duyurular /duyuru_ac izni gerektirir.</p>'
-        '<div class="stats">' + cards + '</div>'
-        '<section><h2>Kullanıcılar</h2><p>İlk 25 kullanıcı. '
-        '<a href="/admin/users?offset=0">Tüm kullanıcılar</a></p>'
-        '<table><thead><tr><th>Telegram ID</th><th>Ad</th><th>Son etkinlik</th>'
-        '<th>Kayıt durumu</th><th>Duyuru izni</th></tr></thead><tbody>'
-        + rows + '</tbody></table></section>'
-        '<section><h2>📣 Duyuru gönder</h2>'
-        '<p>Yalnızca /duyuru_ac ile bildirim izni veren kullanıcılara gider. '
-        'Toplam alıcı: ' + str(stats["announcement_optins"]) + '</p>'
-        '<form method="post" action="/admin/announcement">'
-        '<input type="hidden" name="csrf" value="' + token + '">'
-        '<textarea name="message" maxlength="1500" rows="5" required '
-        'placeholder="Duyuru metnini yaz..."></textarea>'
-        '<p><label><input type="checkbox" name="confirm" value="yes" required '
-        'style="width:auto;display:inline-block"> İzinli alıcılara göndermeyi '
-        'onaylıyorum.</label></p>'
-        '<button type="submit">Duyuruyu gönder</button></form></section>'
-        '<form method="post" action="/admin/logout">'
-        '<input type="hidden" name="csrf" value="' + token + '">'
-        '<button type="submit">Çıkış yap</button></form>'
-    ))
 
 
-@router.get("/admin/users", response_class=HTMLResponse)
-async def list_users(request: Request, offset: int = 0):
-    denied = protected(request)
-    if denied:
+@router.get("/admin/users")
+async def list_users(
+    request: Request, offset: int = 0, search: str = "", status: str = "all"
+):
+    denied = await protected(request)
+    if denied is not None:
         return denied
-    import asyncio
-    offset = max(0, min(offset, 100000))
-    people = await asyncio.to_thread((await asyncio.to_thread(storage)).users, 50, offset)
-    rows = "".join(
-        f'<tr><td><a href="/admin/user/{p["user_id"]}">{p["user_id"]}</a></td>'
-        f'<td>{esc(p["username"] or p["first_name"] or "")}</td>'
-        f'<td>{esc(p["last_seen_at"])}</td></tr>'
-        for p in people
+    offset, search = max(0, min(offset, 100000)), search.strip()[:100]
+    if status not in ("all", "on", "off"):
+        raise HTTPException(400, "Invalid filter")
+    people = await asyncio.to_thread(
+        (await asyncio.to_thread(storage)).users, 50, offset, search, status
     )
-    return page("Kullanıcılar",
-        '<section><h2>Kullanıcı listesi</h2><table><tr><th>ID</th><th>Ad</th>'
-        '<th>Son aktivite</th></tr>' + rows + '</table>'
-        f'<p><a href="/admin/users?offset={max(0,offset-50)}">Önceki</a> · '
-        f'<a href="/admin/users?offset={offset+50}">Sonraki</a></p>'
-        '<a href="/admin">Panele dön</a></section>')
+    options = "".join(
+        f'<option value="{v}" {"selected" if status == v else ""}>{t}</option>'
+        for v, t in (
+            ("all", "Tüm kayıt durumları"),
+            ("on", "Kayıt açık"),
+            ("off", "Kayıt kapalı"),
+        )
+    )
+    links = "".join(
+        f'<a class="button secondary" href="/admin/users?{esc(urlencode(dict(offset=n, search=search, status=status)))}">{t}</a>'
+        for n, t in ((max(0, offset - 50), "← Önceki"), (offset + 50, "Sonraki →"))
+    )
+    return page(
+        "Kullanıcılar",
+        f'<section><form class="filters" method="get"><label>Arama<input name="search" value="{esc(search)}" placeholder="ID, ad veya kullanıcı adı"></label><label>Kayıt durumu<select name="status">{options}</select></label><button>Ara</button></form>'
+        + user_table(people)
+        + f'<div class="pagination"><span>{offset + 1}–{offset + len(people)} · Sayfa {offset // 50 + 1}</span>{links}</div></section>',
+    )
 
 
-@router.get("/admin/user/{user_id}", response_class=HTMLResponse)
+@router.get("/admin/user/{user_id}")
 async def user_messages(request: Request, user_id: int):
-    denied = protected(request)
-    if denied:
+    denied = await protected(request)
+    if denied is not None:
         return denied
-    import asyncio
     db = await asyncio.to_thread(storage)
     person = await asyncio.to_thread(db.user, user_id)
     if person is None:
         raise HTTPException(404, "User not found")
-    records = await asyncio.to_thread(db.conversations, user_id) if person["transcript_enabled"] else []
-    body = '<section><h2>Kullanıcı ' + esc(user_id) + '</h2><p>Takma ad: ' + esc(person["username"]) + '</p>'
-    if not person["transcript_enabled"]:
-        body += '<p>Bu kullanıcının sohbet kaydı kapalı; saklanmış mesaj gösterilmiyor.</p>'
+    await asyncio.to_thread(db.audit, owner_id(), "conversation.view", user_id)
+    return page(
+        "Kullanıcı detayı",
+        f"<section><h2>{esc(person['first_name'])} <small>@{esc(person['username'])}</small></h2><p>Telegram ID: {user_id}<br>İlk giriş: {esc(date_label(person['joined_at']))}<br>Son aktivite: {esc(date_label(person['last_seen_at']))}</p>"
+        '<div class="actions">'
+        + auth_form(request, f"/admin/user/{user_id}/privacy/stop", "Kaydı durdur")
+        + auth_form(
+            request,
+            f"/admin/user/{user_id}/privacy/erase",
+            "Kaydı durdur ve geçmişi sil",
+        )
+        + "</div>"
+        "<p>Yönetici kullanıcı adına kayıt açamaz. Kullanıcı kaydı /gizlilik üzerinden açabilir.</p></section>"
+        f'<section id="chat" data-user="{user_id}"><div class="section-heading"><h2>Sohbet arşivi</h2><span id="chat-status" role="status">Yükleniyor…</span></div>'
+        '<p>Son 30 gün · Görünür sekmede 20 saniyede bir güncellenir.</p><button id="older" class="secondary" hidden>Önceki mesajları yükle</button><div id="messages" aria-live="polite"></div></section>'
+        f'<a class="button" href="/admin/announcements?target={user_id}">Bu kullanıcıya destek mesajı →</a>',
+    )
+
+
+@router.get("/admin/api/user/{user_id}/messages")
+async def messages_api(request: Request, user_id: int, before: int = 0, after: int = 0):
+    if not await is_admin(request):
+        raise HTTPException(401, "Unauthorized")
+    db = await asyncio.to_thread(storage)
+    person = await asyncio.to_thread(db.user, user_id)
+    if person is None:
+        raise HTTPException(404, "User not found")
+    enabled = person["transcript_enabled"]
+    revision_before = await asyncio.to_thread(db.recording_revision, user_id)
+    records = (
+        await asyncio.to_thread(
+            db.conversations, user_id, 40, max(0, before), max(0, after)
+        )
+        if enabled
+        else []
+    )
+    enabled = (await asyncio.to_thread(db.consent, user_id))[0]
+    revision = await asyncio.to_thread(db.recording_revision, user_id)
+    if revision != revision_before:
+        records = []
+    return JSONResponse(
+        {
+            "enabled": enabled,
+            "revision": revision,
+            "messages": [
+                {
+                    **r,
+                    "created_ts": r["created_at"].timestamp(),
+                    "created_at": date_label(r["created_at"]),
+                }
+                for r in records
+            ]
+            if enabled
+            else [],
+            "has_more": enabled and len(records) == 40,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/admin/user/{user_id}/privacy/{action}")
+async def user_privacy(request: Request, user_id: int, action: str):
+    form = await values(request)
+    await guard_csrf(request, form.get("csrf", ""))
+    db = await asyncio.to_thread(storage)
+    if action == "stop":
+        await asyncio.to_thread(db.set_consent, user_id, "transcript_enabled", False)
+    elif action == "erase":
+        await asyncio.to_thread(db.delete_transcripts, user_id)
     else:
-        body += '<p>Yalnızca son 30 günde kayıt açıkken saklanmış metinler:</p>'
-        for msg in records:
-            body += '<div class="box"><b>' + ("Kullanıcı" if msg["direction"] == "user" else "Bot") + '</b>'
-            body += '<small> · ' + esc(msg["created_at"]) + '</small><p>'
-            body += esc(msg["body"]).replace("\n", "<br>") + '</p></div>'
-    return page("Sohbet", body
-                + '<p>🔄 Yeni mesajlar için bu sayfa 20 saniyede bir yenilenir.</p>'
-                + '<a href="/admin">Panele dön</a></section>',
-                refresh_seconds=20)
+        raise HTTPException(400, "Invalid action")
+    await asyncio.to_thread(db.audit, owner_id(), "privacy." + action, user_id)
+    return RedirectResponse(f"/admin/user/{user_id}", 303)
 
 
 @router.post("/admin/login")
@@ -280,50 +386,149 @@ async def login(request: Request):
     if not config_ok():
         raise HTTPException(503, "Admin panel not configured")
     form = await values(request)
-    # Best-effort rate limit; restart resets failures. Recommend Render proxy WAF as well.
+    guard_origin(request)
+    token = request.cookies.get(LOGIN_COOKIE, "")
+    try:
+        stamp, nonce, sig = token.split(":")
+        if (
+            not 0 <= time.time() - int(stamp) < 900
+            or not equal(sig, signature("login:" + stamp + ":" + nonce))
+            or not equal(token, form.get("csrf", ""))
+        ):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(403, "Invalid login form")
+    db = await asyncio.to_thread(storage)
     ip = request.client.host if request.client else "unknown"
-    now = time.monotonic()
-    failures = [v for v in FAILURES.get(ip, []) if now - v < 900]
-    if len(failures) >= 8:
-        raise HTTPException(429, "Too many login attempts. Retry later.")
-    supplied = form.get("password", "")
-    if not hmac.compare_digest(supplied, os.environ["ADMIN_WEB_PASSWORD"]):
-        FAILURES[ip] = failures + [now]
+    if not await asyncio.to_thread(db.admit_login, signature("ip:" + ip)):
+        raise HTTPException(429, "Too many attempts")
+    if not hmac.compare_digest(
+        form.get("password", "").encode(), os.environ["ADMIN_WEB_PASSWORD"].encode()
+    ):
+        await asyncio.to_thread(db.audit, owner_id(), "login.failed")
         return login_page("Parola geçersiz.")
-    FAILURES.pop(ip, None)
-    result = RedirectResponse("/admin", status_code=303)
-    result.set_cookie(COOKIE, signed_session(), max_age=SESSION_LIFETIME,
-                      secure=True, httponly=True, samesite="strict", path="/admin")
-    result.headers["Cache-Control"] = "no-store"
-    return result
+    challenge, code = secrets.token_urlsafe(32), f"{secrets.randbelow(1000000):06d}"
+    await asyncio.to_thread(
+        db.challenge,
+        digest(challenge),
+        signature(challenge + ":" + code),
+        owner_id(),
+        credential_hash(),
+    )
+    try:
+        await request.app.state.telegram_application.bot.send_message(
+            chat_id=owner_id(),
+            text=f"🔐 Yönetici web giriş kodun: {code}\n5 dakika geçerli. Giriş isteği sana ait değilse kodu paylaşma.",
+        )
+    except Exception:
+        raise HTTPException(503, "Telegram verification temporarily unavailable")
+    response = page(
+        "Telegram doğrulaması",
+        f'<section class="login"><p>Yönetici Telegram hesabına gönderilen 6 haneli kodu gir.</p><form action="/admin/verify" method="post"><input type="hidden" name="csrf" value="{signature("verify:" + challenge)}"><label>Tek kullanımlık kod<input name="code" inputmode="numeric" pattern="[0-9]{{6}}" maxlength="6" autocomplete="one-time-code" required></label><button>Giriş yap</button></form></section>',
+    )
+    set_cookie(response, CHALLENGE_COOKIE, challenge, 300)
+    return response
+
+
+@router.post("/admin/verify")
+async def verify(request: Request):
+    if not config_ok():
+        raise HTTPException(503, "Admin panel not configured")
+    form = await values(request)
+    guard_origin(request)
+    token = request.cookies.get(CHALLENGE_COOKIE, "")
+    if not token or not equal(form.get("csrf", ""), signature("verify:" + token)):
+        raise HTTPException(403, "Invalid verification form")
+    db = await asyncio.to_thread(storage)
+    if not await asyncio.to_thread(
+        db.verify_challenge,
+        digest(token),
+        signature(token + ":" + form.get("code", "")),
+        owner_id(),
+        credential_hash(),
+    ):
+        raise HTTPException(401, "Kod geçersiz veya süresi doldu. Tekrar giriş yap.")
+    session = signed_session()
+    await asyncio.to_thread(
+        db.create_session, digest(session), owner_id(), credential_hash()
+    )
+    await asyncio.to_thread(db.audit, owner_id(), "login.success")
+    response = RedirectResponse("/admin", 303)
+    set_cookie(response, COOKIE, session, SESSION_LIFETIME)
+    response.delete_cookie(CHALLENGE_COOKIE, path="/admin")
+    response.delete_cookie(LOGIN_COOKIE, path="/admin")
+    return response
 
 
 @router.post("/admin/logout")
 async def logout(request: Request):
     form = await values(request)
-    guard_csrf(request, form.get("csrf", ""))
-    response = RedirectResponse("/admin", status_code=303)
+    await guard_csrf(request, form.get("csrf", ""))
+    db = await asyncio.to_thread(storage)
+    await asyncio.to_thread(db.revoke_session, digest(request.cookies[COOKIE]))
+    await asyncio.to_thread(db.audit, owner_id(), "logout")
+    response = RedirectResponse("/admin", 303)
     response.delete_cookie(COOKIE, path="/admin")
     return response
 
 
-@router.post("/admin/announcement", response_class=HTMLResponse)
-async def announce(request: Request):
+@router.get("/admin/announcements")
+async def announcements(request: Request, target: int | None = None):
+    denied = await protected(request)
+    if denied is not None:
+        return denied
+    db = await asyncio.to_thread(storage)
+    history = await asyncio.to_thread(db.dispatch_history, owner_id())
+    rows = "".join(
+        f"<tr><td>#{r['id']}<small>{esc(date_label(r['created_at']))}</small></td><td>{esc(r['content'][:100])}</td><td>{r['target_id'] or 'İzinli aboneler'}</td><td>{esc(r['state'])}</td><td>{r['sent']} / {r['failed']} / {r['skipped']} / {r['unknown']}</td></tr>"
+        for r in history
+    )
+    return page(
+        "Duyurular ve destek",
+        "<section><h2>Yeni mesaj hazırla</h2><p>Toplu duyurular yalnızca duyuru izni verenlere gider. Tek kullanıcı mesajı destek iletişimidir.</p>"
+        f'<form method="post" action="/admin/announcement/preview"><input type="hidden" name="csrf" value="{esc(csrf_token(request))}">'
+        f'<label>Hedef Telegram ID (toplu duyuru için boş bırak)<input name="target" inputmode="numeric" value="{target or ""}"></label>'
+        '<label>Mesaj<textarea name="message" rows="6" maxlength="1500" required></textarea></label><button>Önizlemeyi aç →</button></form></section>'
+        "<section><h2>Gönderim geçmişi</h2><p>Başarılı / Başarısız / İzni kaldırılmış / Teslimi belirsiz. Kuyruktaki gönderimler servis uyandığında devam eder.</p>"
+        '<div class="table-wrap"><table><tr><th>Tarih</th><th>Mesaj</th><th>Hedef</th><th>Durum</th><th>Teslim sayıları</th></tr>'
+        + rows
+        + '</table></div><a href="/admin/announcements">Durumu yenile</a></section>',
+    )
+
+
+@router.post("/admin/announcement/preview")
+async def preview(request: Request):
     form = await values(request)
-    guard_csrf(request, form.get("csrf", ""))
-    message = form.get("message", "").strip()
-    if not message or len(message) > 1500:
-        raise HTTPException(400, "Message must be 1-1500 characters")
-    if form.get("confirm") != "yes":
-        raise HTTPException(400, "Duyuru için gönderim onayı gerekli")
-    db = await __import__("asyncio").to_thread(storage)
-    bot = request.app.state.telegram_application.bot
+    await guard_csrf(request, form.get("csrf", ""))
     try:
-        result = await send_announcement(bot, db, message)
-    except ValueError:
-        raise HTTPException(400, "Invalid announcement")
-    return page("Duyuru sonucu",
-        '<section><h2>Duyuru tamamlandı</h2>'
-        f'<p>İzinli alıcı: {result["recipients"]}</p>'
-        f'<p>Başarılı: {result["sent"]} · Başarısız: {result["failed"]}</p>'
-        '<a href="/admin">Panele dön</a></section>')
+        target = int(form["target"]) if form.get("target", "").strip() else None
+        db = await asyncio.to_thread(storage)
+        dispatch_id = await asyncio.to_thread(
+            db.draft_dispatch, owner_id(), form.get("message", ""), target
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    count = 1 if target else len(await asyncio.to_thread(db.recipients))
+    return page(
+        "Gönderim önizlemesi",
+        f'<section><h2>{"Destek mesajı" if target else "İzinli abonelere duyuru"}</h2><p>Şu anki alıcı sayısı: {count}</p><div class="preview">{esc(form["message"])}</div><p>5 dakika içinde onayla. Gönderim anında duyuru izni tekrar kontrol edilir.</p>'
+        + auth_form(
+            request, f"/admin/announcement/{dispatch_id}/confirm", "Gönderimi onayla"
+        )
+        + auth_form(request, f"/admin/announcement/{dispatch_id}/cancel", "Vazgeç")
+        + "</section>",
+    )
+
+
+@router.post("/admin/announcement/{dispatch_id}/{action}")
+async def confirm(request: Request, dispatch_id: int, action: str):
+    form = await values(request)
+    await guard_csrf(request, form.get("csrf", ""))
+    if action not in ("confirm", "cancel"):
+        raise HTTPException(400, "Invalid action")
+    db = await asyncio.to_thread(storage)
+    if not await asyncio.to_thread(
+        db.confirm_dispatch, dispatch_id, owner_id(), action == "cancel"
+    ):
+        raise HTTPException(409, "Onay kullanılmış veya süresi dolmuş")
+    return RedirectResponse("/admin/announcements", 303)

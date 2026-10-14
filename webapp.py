@@ -4,10 +4,12 @@ The webhook is re-registered each time the service wakes from sleep. Incoming
 updates are acknowledged quickly and placed on python-telegram-bot's queue.
 """
 from contextlib import asynccontextmanager
+import asyncio
 import hashlib
 import hmac
 import logging
 import os
+import psycopg
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
@@ -15,6 +17,9 @@ from telegram import Update
 
 import bot as english_bot
 from admin_web import router as admin_router
+from admin_telegram import store as admin_storage
+from admin_delivery import delivery_loop
+from admin_maintenance import maintenance_loop
 
 LOG = logging.getLogger(__name__)
 
@@ -44,8 +49,9 @@ async def lifespan(server: FastAPI):
     await application.start()
     # Webhook mode does not execute the polling post_init hook; register
     # Telegram's "/" menu explicitly on every Render startup.
-    await english_bot.register_commands(application)
+    tasks = []
     try:
+        await english_bot.register_commands(application)
         url = external_url() + "/telegram/webhook"
         await application.bot.set_webhook(
             url=url,
@@ -56,9 +62,19 @@ async def lifespan(server: FastAPI):
         )
         server.state.telegram_application = application
         server.state.webhook_secret = webhook_secret(application.bot.token)
+        if os.getenv('DATABASE_URL'):
+            try:
+                db = await asyncio.to_thread(admin_storage)
+                tasks = [asyncio.create_task(delivery_loop(application.bot,db)),
+                         asyncio.create_task(maintenance_loop(db))]
+            except Exception:
+                LOG.warning('Admin setup unavailable; webhook remains available')
         LOG.info("Telegram webhook registered on Render")
         yield
     finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks,return_exceptions=True)
         # Keep the webhook configured: Telegram will redeliver after cold starts.
         await application.stop()
         await application.shutdown()
@@ -66,6 +82,25 @@ async def lifespan(server: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(admin_router)
+
+
+@app.middleware('http')
+async def admin_response_security(request: Request, call_next):
+    try:
+        response = await call_next(request)
+    except psycopg.Error:
+        if not request.url.path.startswith('/admin'):
+            raise
+        # Database exception strings can contain connection credentials.
+        LOG.warning('Admin database temporarily unavailable')
+        from fastapi.responses import JSONResponse
+        response = JSONResponse({'detail':'Yönetim veritabanı geçici olarak kullanılamıyor'},503)
+    if request.url.path.startswith('/admin'):
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers['X-Frame-Options'] = 'DENY'
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -95,7 +130,7 @@ small{color:#a8b9d4;display:block;margin-top:24px}
 Panelin giriş bilgileri yalnızca Render üzerinden tanımlanır.</p>
 <a class="action" href="/admin">🛡️ Yönetici panelini aç →</a>
 <small>Yönetim paneline giriş için yetkili hesap ve parola gerekir.
-Bot kullanıcılarının özel konuşmaları izin olmadan kaydedilmez.</small>
+İlk kullanımda gizlilik bildirimi sunulur; kayıt tercihleri /gizlilik ile yönetilir.</small>
 </main></body></html>""")
     response.headers.update({
         "Cache-Control": "public, max-age=60",

@@ -2,7 +2,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from telegram.ext import ApplicationHandlerStop
 
@@ -44,7 +44,7 @@ class NoticeSafetyTests(unittest.TestCase):
                 "admin_telegram.store", return_value=db
             ):
                 await observe(update, SimpleNamespace())
-            db.store_text.assert_called_once_with(42, "user", "Merhaba")
+            db.store_text.assert_called_once_with(42, "user", "Merhaba", None, ANY, ANY)
         asyncio.run(run())
 
     def test_restricted_users_cannot_be_tracked(self):
