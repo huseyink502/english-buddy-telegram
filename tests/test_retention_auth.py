@@ -9,7 +9,13 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from httpx import ASGITransport, AsyncClient
 
-from retention_auth import ISSUER, REPOSITORY, WORKFLOW, authorized_retention
+from retention_auth import (
+    ISSUER,
+    REPOSITORY,
+    SUBJECT_PREFIX,
+    WORKFLOW,
+    authorized_retention,
+)
 from webapp import app
 
 AUDIENCE = "https://testserver/internal/admin-retention"
@@ -23,7 +29,7 @@ class RetentionAuthTests(unittest.IsolatedAsyncioTestCase):
         self.claims = {
             "iss": ISSUER,
             "aud": AUDIENCE,
-            "sub": f"repo:{REPOSITORY}:ref:refs/heads/main",
+            "sub": f"{SUBJECT_PREFIX}:ref:refs/heads/main",
             "exp": int(time.time()) + 300,
             "iat": int(time.time()),
             "nbf": int(time.time()),
@@ -51,6 +57,7 @@ class RetentionAuthTests(unittest.IsolatedAsyncioTestCase):
                 {"repository": "another/repo"},
                 {"ref": "refs/heads/dev"},
                 {"sub": "repo:attacker/repo:ref:refs/heads/main"},
+                {"sub": f"repo:{REPOSITORY}:ref:refs/heads/main"},
                 {"workflow_ref": "another.yml"},
                 {"event_name": "pull_request"},
             ):

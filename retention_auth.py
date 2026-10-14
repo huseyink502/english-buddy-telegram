@@ -9,6 +9,9 @@ import jwt
 
 ISSUER = "https://token.actions.githubusercontent.com"
 REPOSITORY = "huseyink502/english-buddy-telegram"
+# Verified from GitHub's repository OIDC configuration. Immutable IDs prevent
+# another account/repository from inheriting access after a name is recycled.
+SUBJECT_PREFIX = "repo:huseyink502@340566337/english-buddy-telegram@1414207097"
 WORKFLOW = REPOSITORY + "/.github/workflows/admin-retention.yml@refs/heads/main"
 _keys = {}
 _fetched_at = 0.0
@@ -65,7 +68,7 @@ async def authorized_retention(token: str, audience: str) -> bool:
             },
         )
         checks = {
-            "subject": claims["sub"] == f"repo:{REPOSITORY}:ref:refs/heads/main",
+            "subject": claims["sub"] == f"{SUBJECT_PREFIX}:ref:refs/heads/main",
             "repository": claims["repository"] == REPOSITORY,
             "branch": claims["ref"] == "refs/heads/main",
             "workflow": claims["workflow_ref"] == WORKFLOW,
