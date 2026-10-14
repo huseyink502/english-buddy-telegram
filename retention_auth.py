@@ -35,10 +35,12 @@ async def authorized_retention(token: str, audience: str) -> bool:
     try:
         header = jwt.get_unverified_header(token)
         if header.get("alg") != "RS256":
+            LOG.warning("Retention verification rejected (AlgorithmNotAllowed)")
             return False
         keys = await github_keys()
         data = keys.get(header.get("kid"))
         if data is None:
+            LOG.warning("Retention verification rejected (UnknownSigningKey)")
             return False
         key = jwt.PyJWK.from_dict(data, algorithm="RS256").key
         claims = jwt.decode(
