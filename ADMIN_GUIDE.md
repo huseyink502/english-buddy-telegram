@@ -94,6 +94,8 @@ yalnızca süre temizliği yapar; veritabanı parolası GitHub'a taşınmaz.
 OIDC doğrulaması imza/issuer/audience/süre, depo, `main` dalı, görev dosyası ve
 schedule/manual tetikleme türünü kontrol eder. Bu kimlik kullanıcı/sohbet
 okuyamaz ve başka admin işlemi yapamaz. Görev için `id-token: write` gereklidir.
+Bu depoda GitHub'ın değişmez subject biçimi etkindir; hesap ve depo ID'leri de
+kontrol edilir. Adın başka hesaba/depolara devredilmesi temizlik yetkisi vermez.
 GitHub schedule gecikebilir; tam 30. gün saniyesinde fiziksel silme garantisi
 yoktur. Manuel görev: `python admin_maintenance.py`. Neon geri yükleme/yedek
 pencereleri ayrı yönetilir; kullanıcı silme talebinin yedeklerden geri getirilmemesi
