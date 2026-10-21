@@ -613,7 +613,7 @@ async def chat_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_access(update):
         return
     context.user_data["mode"] = "chat"
-    context.user_data["chat_history"] = [("model", "Hello! What's your name?")]
+    context.user_data["chat_history"] = [("user", "Let's practice introductions."), ("model", "Hello! What's your name?")]
     await update.message.reply_text(
         "💬 Konuşma pratiğine geçtik! Benimle çok basit İngilizce konuş.\n"
         "İlk soru: Hello! What's your name? (Merhaba, adın ne?)\n\n"
