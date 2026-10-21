@@ -202,6 +202,7 @@ async def lesson(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     day = DB.day(user_id)
     DB.learn_words(user_id, lesson_for(day)["words"])
+    context.user_data["mode"] = "ask"
     await update.message.reply_text(render_lesson(day), reply_markup=MENU)
 
 
@@ -242,7 +243,16 @@ async def begin_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, review:
             )
             return
     else:
-        words = lesson_for(DB.day(user_id))["words"]
+        day = DB.day(user_id)
+        words = lesson_for(day)["words"]
+        learned_before = DB.stats(user_id)["words"]
+        DB.learn_words(user_id, words)
+        if DB.stats(user_id)["words"] > learned_before:
+            await update.message.reply_text(
+                "📚 Bu günün kelimelerini ilk kez görüyorsun. "
+                "Teste geçmeden önce derse göz at:\n\n" + render_lesson(day)
+            )
+    context.user_data["mode"] = "ask"
     questions = questions_for(words)
     context.user_data["quiz_state"] = {
         "mode": "tekrar" if review else "test", "questions": questions,
@@ -589,12 +599,13 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     stat = DB.stats(user_id)
     percent = round(stat["correct"] / stat["total"] * 100) if stat["total"] else 0
-    due = len(DB.due_words(user_id, limit=100))
+    due = len(DB.due_words(user_id, limit=101))
+    due_label = "100+" if due > 100 else str(due)
     await update.message.reply_text(
-        f"📊 İlerlemen\n\n📅 Ders: {stat['day']}/7\n"
+        f"📊 İlerlemen\n\n📅 Ders: {stat['day']}/{len(LESSONS)}\n"
         f"🗂️ Görülen kelime: {stat['words']}\n🧠 Bitirilen test: {stat['quizzes']}\n"
         f"🎯 Doğru cevap: {stat['correct']}/{stat['total']} (%{percent})\n"
-        f"🔁 Tekrar bekleyen: {due}", reply_markup=MENU,
+        f"🔁 Tekrar bekleyen: {due_label}", reply_markup=MENU,
     )
 
 
@@ -602,7 +613,7 @@ async def chat_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_access(update):
         return
     context.user_data["mode"] = "chat"
-    context.user_data["chat_history"] = []
+    context.user_data["chat_history"] = [("model", "Hello! What's your name?")]
     await update.message.reply_text(
         "💬 Konuşma pratiğine geçtik! Benimle çok basit İngilizce konuş.\n"
         "İlk soru: Hello! What's your name? (Merhaba, adın ne?)\n\n"
@@ -653,14 +664,17 @@ async def ask_ai(update: Update, context: ContextTypes.DEFAULT_TYPE, message: st
             )
         await update.message.reply_text(hint)
         return
-    if provider == "groq":
-        answer = "↪️ Gemini yoğun olduğu için bu yanıt Groq üzerinden oluşturuldu.\n\n" + answer
+    display_answer = (
+        "↪️ Gemini yoğun olduğu için bu yanıt Groq üzerinden oluşturuldu.\n\n" + answer
+        if provider == "groq" else answer
+    )
+    # Keep provider status out of model history so future practice stays coherent.
     history.extend([("user", message), ("model", answer)])
     context.user_data["chat_history"] = history[-10:]
-    await note_reply(update, answer, context)
+    await note_reply(update, display_answer, context)
     # Telegram messages are limited in size. Split long responses safely.
-    for chunk_start in range(0, len(answer), 3900):
-        await update.message.reply_text(answer[chunk_start:chunk_start + 3900])
+    for chunk_start in range(0, len(display_answer), 3900):
+        await update.message.reply_text(display_answer[chunk_start:chunk_start + 3900])
 
 
 def make_mp3(phrase: str) -> bytes:
@@ -671,12 +685,11 @@ def make_mp3(phrase: str) -> bytes:
     return out.getvalue()
 
 
-async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await check_access(update):
-        return
-    phrase = " ".join(context.args).strip() if context.args else ""
+async def send_pronunciation(update: Update, context: ContextTypes.DEFAULT_TYPE, phrase: str) -> None:
+    """Send speech for a word supplied by command or the pronunciation menu."""
+    phrase = phrase.strip()
     if not phrase:
-        await update.message.reply_text("🔊 Örnek: /speak Good morning, how are you?")
+        await update.message.reply_text("Bir İngilizce kelime veya cümle yaz. Örnek: Good morning!")
         return
     if len(phrase) > 150:
         await update.message.reply_text("En fazla 150 karakterlik bir İngilizce cümle gönder.")
@@ -691,6 +704,21 @@ async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         LOG.warning("TTS error")
         await update.message.reply_text("⚠️ Ses şu an oluşturulamadı; internet erişimini kontrol et.")
 
+
+async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_access(update):
+        return
+    phrase = " ".join(context.args).strip() if context.args else ""
+    if not phrase:
+        context.user_data["mode"] = "speak"
+        await update.message.reply_text(
+            "🔊 Telaffuz modu açık. Sesini duymak istediğin İngilizce "
+            "kelime veya cümleyi yaz. Örnek: Good morning!\n"
+            "Bu moddan çıkmak için /ask veya /chat yaz.",
+            reply_markup=MENU,
+        )
+        return
+    await send_pronunciation(update, context, phrase)
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_access(update):
@@ -729,6 +757,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🏛️ Siyaset": news_command,
         "📊 İlerleme": progress,
         "➡️ Sonraki gün": next_day,
+        "🔊 Telaffuz": speak,
     }
     if text == "🏛️ Siyaset":
         await show_news(update, context, category="siyaset")
@@ -736,8 +765,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await show_news(update, context, category="oyun")
     elif text in button_map:
         await button_map[text](update, context)
-    elif text == "🔊 Telaffuz":
-        await update.message.reply_text("🔊 Dinlemek için /speak Hello yaz.")
+    elif context.user_data.get("mode") == "speak":
+        await send_pronunciation(update, context, text)
     elif context.user_data.get("mode") == "news":
         await ask_news_ai(update, context, text)
     else:
