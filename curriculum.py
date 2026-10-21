@@ -206,18 +206,18 @@ def all_words() -> list[tuple[str, str]]:
 def render_lesson(day: int) -> str:
     lesson = lesson_for(day)
     guidance = LESSON_GUIDANCE[day]
-    words = "\\n".join(f"• {en} — {tr}" for en, tr in lesson["words"])
-    phrases = "\\n".join(f"• {en}\\n  ↳ {tr}" for en, tr in lesson["phrases"])
-    dialogue = "\\n".join(
-        f"{english}\\n  ↳ {turkish}"
+    words = "\n".join(f"• {en} — {tr}" for en, tr in lesson["words"])
+    phrases = "\n".join(f"• {en}\n  ↳ {tr}" for en, tr in lesson["phrases"])
+    dialogue = "\n".join(
+        f"{english}\n  ↳ {turkish}"
         for english, turkish in zip(lesson["dialogue"], guidance["dialogue_tr"])
     )
     return (
-        f"📚 GÜN {day}/{len(LESSONS)} — {lesson['title']}\\n\\n"
-        f"🧩 Yeni kelimeler:\\n{words}\\n\\n"
-        f"💬 Cümle kalıpları:\\n{phrases}\\n\\n"
-        f"🧠 Küçük dil bilgisi notu:\\n{guidance['tip']}\\n\\n"
-        f"🎭 Mini diyalog (çevirili):\\n{dialogue}\\n\\n"
-        f"✍️ Mini alıştırma:\\n{guidance['task']}\\n\\n"
+        f"📚 GÜN {day}/{len(LESSONS)} — {lesson['title']}\n\n"
+        f"🧩 Yeni kelimeler:\n{words}\n\n"
+        f"💬 Cümle kalıpları:\n{phrases}\n\n"
+        f"🧠 Küçük dil bilgisi notu:\n{guidance['tip']}\n\n"
+        f"🎭 Mini diyalog (çevirili):\n{dialogue}\n\n"
+        f"✍️ Mini alıştırma:\n{guidance['task']}\n\n"
         "Hazır olunca /quiz ile kendini dene. /speak Hello ile telaffuzu dinle!"
     )
