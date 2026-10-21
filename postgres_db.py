@@ -3,7 +3,9 @@
 Set DATABASE_URL (for example, a Neon pooled PostgreSQL connection string).
 Without it, the existing SQLite storage remains available for local development.
 """
-from datetime import date, timedelta
+from datetime import timedelta
+
+from learning_time import learning_today
 
 import psycopg
 
@@ -60,7 +62,7 @@ class PostgresProgressDB:
         return self.day(user_id)
 
     def learn_words(self, user_id: int, words: list[tuple[str, str]]) -> None:
-        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        tomorrow = (learning_today() + timedelta(days=1)).isoformat()
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.executemany(
@@ -76,7 +78,7 @@ class PostgresProgressDB:
                 "SELECT english, turkish FROM vocabulary "
                 "WHERE user_id=%s AND due<=%s "
                 "ORDER BY due, english LIMIT %s",
-                (user_id, date.today().isoformat(), limit),
+                (user_id, learning_today().isoformat(), limit),
             ).fetchall()
 
     def review_result(self, user_id: int, english: str, correct: bool) -> None:
@@ -89,7 +91,7 @@ class PostgresProgressDB:
                 return
             next_level = min(row[0] + 1, 4) if correct else 0
             days = [0, 3, 7, 14, 30][next_level]
-            due = (date.today() + timedelta(days=days)).isoformat()
+            due = (learning_today() + timedelta(days=days)).isoformat()
             conn.execute(
                 "UPDATE vocabulary SET level=%s, due=%s "
                 "WHERE user_id=%s AND english=%s",

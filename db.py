@@ -1,7 +1,9 @@
 """Persistent progress and a lightweight spaced-repetition schedule (SQLite)."""
 
 import sqlite3
-from datetime import date, timedelta
+from datetime import timedelta
+
+from learning_time import learning_today
 from pathlib import Path
 
 
@@ -48,7 +50,7 @@ class ProgressDB:
 
     def learn_words(self, user_id: int, words: list[tuple[str, str]]) -> None:
         """New cards first become due on the next day; repeating /lesson does not reset them."""
-        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        tomorrow = (learning_today() + timedelta(days=1)).isoformat()
         with self._connect() as conn:
             conn.executemany(
                 "INSERT OR IGNORE INTO vocabulary(user_id, english, turkish, due) VALUES (?, ?, ?, ?)",
@@ -59,7 +61,7 @@ class ProgressDB:
         with self._connect() as conn:
             return conn.execute(
                 "SELECT english, turkish FROM vocabulary WHERE user_id=? AND due<=? "
-                "ORDER BY due, english LIMIT ?", (user_id, date.today().isoformat(), limit),
+                "ORDER BY due, english LIMIT ?", (user_id, learning_today().isoformat(), limit),
             ).fetchall()
 
     def review_result(self, user_id: int, english: str, correct: bool) -> None:
@@ -73,7 +75,7 @@ class ProgressDB:
                 return
             next_level = min(row[0] + 1, 4) if correct else 0
             days = [0, 3, 7, 14, 30][next_level]
-            due = (date.today() + timedelta(days=days)).isoformat()
+            due = (learning_today() + timedelta(days=days)).isoformat()
             conn.execute(
                 "UPDATE vocabulary SET level=?, due=? WHERE user_id=? AND english=?",
                 (next_level, due, user_id, english),

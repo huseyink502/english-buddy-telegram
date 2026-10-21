@@ -1,8 +1,8 @@
 # 🇬🇧 English Buddy — ücretsiz Telegram + Gemini İngilizce öğretmeni
 
-Sıfırdan gündelik İngilizce öğrenmek için geliştirilen Telegram botu. 7 günlük dersler,
-kelime sınavları, tekrarlama, sesli telaffuz, Gemini'yle Türkçe soru-cevap ve basit
-İngilizce sohbet özellikleri içerir.
+Sıfırdan gündelik İngilizce öğrenmek için geliştirilen Telegram botu. 7 günlük başlangıç dersleri (Türkçe diyalog çevirileri, dil bilgisi notları ve mini ödevler),
+kelime sınavları, Türkiye saatine göre kelime tekrarları, sesli telaffuz,
+Gemini'yle Türkçe soru-cevap ve basit İngilizce sohbet özellikleri içerir.
 
 ## 🚀 Ücretsiz Render kurulum — Codex Cloud gerekmez
 
@@ -111,7 +111,7 @@ paylaşırsın. Sınırsız kullanım hedeflenmemelidir; API kota/harcamaların�
 | `/review` | Aralıklı kelime tekrarı |
 | `/chat` | Gemini ile başlangıç seviyesi İngilizce sohbet |
 | `/ask` | Gemini'ye istediğin soruyu sor |
-| `/speak hello` | Sesli İngilizce telaffuz |
+| `/speak hello` | Sesli İngilizce telaffuz; argümansız `/speak` açıldığında sonraki yazdıklarını seslendirir |
 | `/progress` | Öğrenme ilerlemesi |
 | `/next` | Sonraki ders |
 | `/whoami` | Telegram kullanıcı ID'n |
@@ -157,7 +157,7 @@ canlı Render ortamında yapılabilir. Bu repo API anahtarları içermez.
 - `postgres_db.py`: Kalıcı Neon/Postgres ilerlemesi
 - `render.yaml`: **Ücretsiz** Render web servisi ve güvenli anahtar girişleri
 - `news.py`: RSS haberleri, kategoriler, yayın tarihi ve linkler
-- `curriculum.py`, `quiz.py`, `tests/`: Dersler, testler ve kontroller
+- `curriculum.py`, `quiz.py`, `learning_time.py`, `tests/`: Dersler, testler, Türkiye saatine göre tekrar günleri ve kontroller
 
 
 ## 🗞️ Ortak haber hafızası ve günlük özet (yeni)
