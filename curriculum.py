@@ -123,6 +123,75 @@ LESSONS = [
 ]
 
 
+# Extra guidance for absolute beginners. Each dialogue line gets a Turkish translation.
+LESSON_GUIDANCE = {
+    1: {
+        "tip": "I am = I'm (ben ...im); How are you? = Nasılsın?",
+        "dialogue_tr": [
+            "A: Merhaba! Nasılsın?",
+            "B: İyiyim, teşekkür ederim. Ya sen?",
+            "A: Ben de iyiyim! Sonra görüşürüz!",
+        ],
+        "task": "İngilizce 'Merhaba, nasılsın?' yazmayı dene.",
+    },
+    2: {
+        "tip": "My name is ... = Benim adım ...; I'm = I am.",
+        "dialogue_tr": [
+            "A: Selam! Adın ne?",
+            "B: Benim adım Ali. Seninki ne?",
+            "A: Ben Emma. Tanıştığıma memnun oldum!",
+        ],
+        "task": "Kendi adını ve öğrenci olduğunu iki İngilizce cümleyle yaz.",
+    },
+    3: {
+        "tip": "I want = istiyorum; I need = ihtiyacım var.",
+        "dialogue_tr": [
+            "A: Yardıma ihtiyacın var mı?",
+            "B: Evet, lütfen. Suya ihtiyacım var.",
+            "A: Buyur!",
+        ],
+        "task": "I want ... ile bir ihtiyaç cümlesi kur.",
+    },
+    4: {
+        "tip": "What = ne; Where = nerede; sorularda genellikle is/are kullanılır.",
+        "dialogue_tr": [
+            "A: Bu ne?",
+            "B: Bu benim kitabım.",
+            "A: Çantan nerede?",
+            "B: Burada.",
+        ],
+        "task": "What is this? sorusuna basit bir cevap yaz.",
+    },
+    5: {
+        "tip": "Can I have ...? = ... alabilir miyim? Kibar sipariş için kullanılır.",
+        "dialogue_tr": [
+            "A: Merhaba! Ne istersiniz?",
+            "B: Küçük bir çay, lütfen.",
+            "A: Buyurun. Afiyet olsun!",
+        ],
+        "task": "Can I have ...? ile bir sipariş cümlesi yaz.",
+    },
+    6: {
+        "tip": "How was your day? geçmiş bir günü sorar; I'm tired = Yorgunum.",
+        "dialogue_tr": [
+            "A: Günün nasıldı?",
+            "B: İyiydi ama yorgunum.",
+            "A: İyi akşamlar!",
+        ],
+        "task": "I'm ... kalıbıyla bugün nasıl hissettiğini yaz.",
+    },
+    7: {
+        "tip": "I am learning = Öğreniyorum; Can you ...? = ... yapabilir misin?",
+        "dialogue_tr": [
+            "A: İngilizce konuşuyor musun?",
+            "B: Biraz. Öğreniyorum!",
+            "A: Harika! Birlikte pratik yapalım.",
+        ],
+        "task": "I am learning English. cümlesini yaz, sonra /chat ile konuşmaya başla.",
+    },
+}
+
+
 def lesson_for(day: int) -> dict:
     """Return a lesson by 1-based day number."""
     if not 1 <= day <= len(LESSONS):
@@ -136,13 +205,19 @@ def all_words() -> list[tuple[str, str]]:
 
 def render_lesson(day: int) -> str:
     lesson = lesson_for(day)
-    words = "\n".join(f"• {en} — {tr}" for en, tr in lesson["words"])
-    phrases = "\n".join(f"• {en}\n  {tr}" for en, tr in lesson["phrases"])
-    dialogue = "\n".join(lesson["dialogue"])
+    guidance = LESSON_GUIDANCE[day]
+    words = "\\n".join(f"• {en} — {tr}" for en, tr in lesson["words"])
+    phrases = "\\n".join(f"• {en}\\n  ↳ {tr}" for en, tr in lesson["phrases"])
+    dialogue = "\\n".join(
+        f"{english}\\n  ↳ {turkish}"
+        for english, turkish in zip(lesson["dialogue"], guidance["dialogue_tr"])
+    )
     return (
-        f"📚 GÜN {day}/7 — {lesson['title']}\n\n"
-        f"🧩 Yeni kelimeler:\n{words}\n\n"
-        f"💬 Cümle kalıpları:\n{phrases}\n\n"
-        f"🎭 Mini diyalog:\n{dialogue}\n\n"
-        "Şimdi /quiz ile kendini dene. /speak Hello ile telaffuzu dinle!"
+        f"📚 GÜN {day}/{len(LESSONS)} — {lesson['title']}\\n\\n"
+        f"🧩 Yeni kelimeler:\\n{words}\\n\\n"
+        f"💬 Cümle kalıpları:\\n{phrases}\\n\\n"
+        f"🧠 Küçük dil bilgisi notu:\\n{guidance['tip']}\\n\\n"
+        f"🎭 Mini diyalog (çevirili):\\n{dialogue}\\n\\n"
+        f"✍️ Mini alıştırma:\\n{guidance['task']}\\n\\n"
+        "Hazır olunca /quiz ile kendini dene. /speak Hello ile telaffuzu dinle!"
     )
