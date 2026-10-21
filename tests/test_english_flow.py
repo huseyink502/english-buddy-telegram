@@ -86,7 +86,7 @@ class EnglishBotFlowTests(unittest.TestCase):
             self.assertEqual(context.user_data["mode"], "chat")
             self.assertEqual(
                 context.user_data["chat_history"],
-                [("model", "Hello! What's your name?")],
+                [("user", "Let's practice introductions."), ("model", "Hello! What's your name?")],
             )
         asyncio.run(run())
 
